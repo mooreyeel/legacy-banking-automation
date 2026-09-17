@@ -2,6 +2,8 @@
 
 An AI system that operates legacy back-office bank applications **that have no API**, by driving the UI like a human would — moving money **reliably, cheaply, and auditably**, and stopping to hand a live session to a person the instant it can't proceed safely.
 
+**▶ Live:** https://legacy-banking-automation.vercel.app · [**run the walkthrough**](https://legacy-banking-automation.vercel.app/walkthrough.html) · [**read the design**](https://legacy-banking-automation.vercel.app/design.html)
+
 ## What's here
 
 | File | What it is |
@@ -13,7 +15,7 @@ An AI system that operates legacy back-office bank applications **that have no A
 
 ## View it
 
-Just open `index.html` in a browser — everything is self-contained, no build step, no dependencies.
+Live at **https://legacy-banking-automation.vercel.app** — or open `index.html` locally; everything is self-contained, no build step, no dependencies.
 
 ```
 open index.html
