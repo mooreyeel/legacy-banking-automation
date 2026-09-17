@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>design.md — legacy-banking-automation</title>
+<meta name="description" content="Full design document: task contract, execution model, driving the UI, error taxonomy, escalation, safety, evidence, generalization."/>
+<style>
+  :root{
+    --bg:#0a0d12;--panel:#0e131b;--panel2:#0c1017;--line:#1c2431;--line2:#141a24;
+    --ink:#d7deea;--ink2:#aeb9c9;--muted:#7b8698;--faint:#515c6d;
+    --accent:#5aa9ff;--green:#38d6b0;--danger:#ff6b6b;--warn:#f6c453;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink2);font-family:var(--sans);
+    font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .bar{position:sticky;top:0;z-index:20;background:rgba(10,13,18,.85);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px}
+  .bar .wrap{max-width:820px;margin:0 auto;padding:0 1.5rem;display:flex;align-items:center;gap:1rem;height:46px}
+  .bar .path{color:var(--muted)} .bar .path .g{color:var(--green)}
+  .bar .nav{margin-left:auto;display:flex;gap:1.1rem;align-items:center}
+  .bar .nav a{color:var(--muted)} .bar .nav a:hover{color:var(--ink);text-decoration:none}
+  .bar .run{color:var(--green)!important;border:1px solid var(--line);padding:.25em .7em;border-radius:6px}
+  .bar .run:hover{border-color:var(--green);text-decoration:none}
+  main{max-width:820px;margin:0 auto;padding:2.4rem 1.5rem 4rem}
+  h1{font-family:var(--sans);font-weight:800;letter-spacing:-.02em;color:#fff;
+    font-size:2rem;line-height:1.15;margin:.2rem 0 .6rem}
+  h1 + p em{color:var(--muted);font-style:normal}
+  h2{font-family:var(--mono);color:#fff;font-size:1.15rem;font-weight:600;letter-spacing:.01em;
+    margin:2.4rem 0 .8rem;padding-top:1.4rem;border-top:1px solid var(--line2)}
+  h2::before{content:"# ";color:var(--green)}
+  h3{font-family:var(--sans);color:var(--ink);font-size:1.05rem;margin:1.5rem 0 .4rem}
+  p{margin:.7rem 0}
+  strong{color:var(--ink)} em{color:var(--ink2)}
+  ul,ol{padding-left:1.3rem} li{margin:.3rem 0}
+  hr{border:0;border-top:1px solid var(--line2);margin:2rem 0}
+  code{font-family:var(--mono);font-size:.88em;background:#111720;border:1px solid var(--line2);
+    border-radius:4px;padding:.08em .4em;color:var(--green)}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:1rem 1.1rem;
+    overflow-x:auto;margin:1rem 0}
+  pre code{background:none;border:0;padding:0;color:var(--ink2);font-size:13px;line-height:1.6}
+  table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:.5rem .7rem;text-align:left;vertical-align:top}
+  th{background:var(--panel);color:var(--ink);font-family:var(--mono);font-size:12.5px;font-weight:600}
+  td code{font-size:.85em}
+  blockquote{border-left:2px solid var(--green);margin:1rem 0;padding:.2rem 0 .2rem 1rem;color:var(--muted)}
+  main > p:first-of-type + p em, h1 + p{color:var(--muted)}
+  footer{max-width:820px;margin:0 auto;padding:1.6rem 1.5rem 3rem;border-top:1px solid var(--line);
+    color:var(--faint);font-size:12px;font-family:var(--mono);display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap}
+  footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="bar"><div class="wrap">
+  <span class="path"><a href="index.html" style="color:var(--muted)"><span class="g">~</span>/legacy-banking-automation</a> / design.md</span>
+  <span class="nav">
+    <a href="index.html">home</a>
+    <a class="run" href="walkthrough.html">▶ run it</a>
+  </span>
+</div></div>
+<main>
+<h1>Automation for Legacy Banking</h1>
+<p><em>A design for an AI system that operates legacy back-office bank applications through their UI — reliably, cheaply, and auditably.</em></p>
+<hr>
+<h2>0. Pre-read (system contract)</h2>
+<p>Banks and credit unions run back-office applications that often have <strong>no API</strong>, so the only way in is the UI their staff already use. Our system automates through that UI: the agent calls a typed task — say <code>transfer_funds(from_acct, to_acct, amount, intent_key)</code> — and gets back a confirmation number or a structured reason the transfer didn&#39;t happen.</p>
+<p>Behind the interface, our AI system signs in and works through the application screens like a human would, and stops and hands the live session to a human when it cannot proceed safely.</p>
+<p>Take two examples throughout: <strong><code>get_balance</code></strong> (read-only) and <strong><code>transfer_funds</code></strong> (irreversible).</p>
+<h3>Philosophy</h3>
+<ol>
+<li>A failed check stops everything.</li>
+<li>An action never fires twice blindly.</li>
+<li>Nothing irreversible fires without two things on record: a ledger entry proving this exact intent has not already executed, and a go-ahead from outside the system (a human, or a rule the institution set).</li>
+<li>No model runs in the runtime loop.</li>
+<li>Credentials and raw member data are never written to storage. Checks verify against live screen values; masking is applied at the moment evidence is written (§6).</li>
+</ol>
+<h3>Overall architecture</h3>
+<pre><code>Agent (the caller)  ─▶  typed task
+Task API            ─▶  catalog of tasks, schema + policy checks, lock to member
+Executor            ─▶  runs the task: always check-then-act, logs to intent ledger, returns an envelope
+  ├─ Seam 1: screen model + per-bank overlay turn the task&#39;s logical field names into on-screen locators (swap per bank)
+  └─ Seam 2: one driver interface per surface (web vs. desktop)
+Driver              ─▶  drive through DOM or UI automation, or anchored OCR
+Legacy application  ─▶  the UI we drive through
+  ├─ When stuck ─▶ WORK ITEM: live view for human takeover
+  ├─ Every run  ─▶ EVIDENCE: structured trace + masked screenshots
+  └─ Secrets    ─▶ VAULT: credentials, injected in the login step only
+LLM                 ─▶ works offline: authors task definitions and screen models under human review
+</code></pre>
+<hr>
+<h2>1. Task contract</h2>
+<p>The agent never sees a screen; it sees a <strong>catalog of typed tasks</strong> and calls one. A task is a single business action with a typed result — <code>transfer_funds</code>, <code>get_balance</code>. Each is a catalog entry the agent discovers via <code>GET /tasks?tenant=</code>, which returns each task&#39;s inputs, its safety label, and whether it needs consent — so the caller knows exactly what it&#39;s about to trigger before it triggers it.</p>
+<p>A task definition looks like this:</p>
+<pre><code class="language-yaml">task: transfer_funds
+version: 1.4.0
+label: irreversible          # read_only | reversible | irreversible
+description: internal transfer between the bound member&#39;s accounts
+inputs:  {from_acct: acct_ref, to_acct: acct_ref, amount: money&gt;0, intent_key: uuid, consent_ref}
+outputs: {confirmation_number: string, posted_at: datetime}
+declines: [MEMBER_NOT_FOUND, ACCT_NOT_FOUND, INSUFFICIENT_FUNDS,
+           ACCOUNT_RESTRICTED, LIMIT_EXCEEDED]
+preconditions: [member_session_verified, accounts_belong_to_bound_member]
+requires_consent: true
+approval_state: approved     # draft | approved | suspended
+sla_hint_seconds: 60
+</code></pre>
+<p><code>get_balance(member_id)</code> is read-only, so it&#39;s about the same but with no consent requirement and no ledger involvement. The <strong>label</strong> controls whether the task can run unattended, whether a failure can be retried, how much evidence to record, and whether it must stop for human approval.</p>
+<p>The <code>consent_ref</code> is echoed into the ledger row and the trace, so the consent that authorized a transfer is auditable after the fact.</p>
+<p><strong>Invocation.</strong> Calls are async by default: <code>POST /tasks/{name}:invoke</code> returns a <code>run_id</code>, and the caller either polls <code>GET /runs/{id}</code> or registers a callback. A <code>priority</code> of <code>member_waiting</code> or <code>batch</code> sets which queue it lands in. Read-only tasks also get a synchronous shortcut — one call that waits up to 15 s; if the task hasn&#39;t finished, it hands <code>run_id</code> back to the poll, so a slow read degrades to the async path instead of hanging.</p>
+<p><strong>The envelope.</strong> Every task returns the same shaped object: a <code>status</code>, and then exactly one of <code>outputs</code> (it worked), <code>decline</code> (a typed business reason it didn&#39;t), or <code>escalation</code> (a human is handling it). It never contains UI words, selectors, screenshots, or stack traces. An agent developer should be able to write complete handling code from this contract alone, without looking under the hood.</p>
+<p><strong>Idempotency — two keys for two questions.</strong> When a call fails, the caller doesn&#39;t know whether the work happened, so it retries. Bad ending: you double-send someone&#39;s money.</p>
+<ul>
+<li>The <strong><code>Idempotency-Key</code> header</strong> is a guard on the network. The caller attaches it to the HTTP call; if the response gets lost and the same header key is retried, the server replays the stored response rather than running anything. This handles the ordinary case: a dropped connection, an automatic client retry.</li>
+<li>The <strong><code>intent_key</code></strong> is a guard on the money. The caller mints it once, up front, to identify the business intent itself (&quot;this particular transfer&quot;), and it travels with the request into the ledger. Before firing, the executor doesn&#39;t check <em>whether</em> the intent exists — it tries to <em>advance its state</em>: move this intent from <code>prepared</code> to <code>triggered</code>, and only proceeds if that move succeeds. If two executors race the same intent, the database lets exactly one win the transition.</li>
+</ul>
+<p>The header key only catches a retry that looks identical. If the caller&#39;s process restarts and sends the same transfer as a fresh call, the header sees something new — but the <code>intent_key</code> still catches it, because the ledger remembers the intent no matter how the request arrives.</p>
+<p><strong>Member binding.</strong> Every run is tied to one specific member, and the caller supplies that member context. Before the executor even opens a session, the orchestrator checks that the accounts in the request actually belong to that member, and rejects the call if they don&#39;t.</p>
+<p><strong>Caller authentication.</strong> The agent platform logs in to our API with its own credentials, scoped to one institution, and every call it makes is stamped with that caller&#39;s identity in the trace, kept separate from the member it&#39;s acting for. A caller can only invoke tasks for its own institution, so reaching across institutions or members is not possible. Verifying <em>who the member is</em> stays the caller&#39;s job, because that happens in the phone or chat conversation our system never sees. What we require is the member we&#39;re acting for, and — for anything irreversible — that they consented.</p>
+<p><strong>Caching.</strong> We don&#39;t cache business outcomes like remaining balance; we cache items with clean expiry, like logged-in sessions and pinned task files. A cached balance can be wrong and look identical to a right one.</p>
+<hr>
+<h2>2. Execution model</h2>
+<p>Section 1 was what the agent/caller sees. This is what actually runs behind it: how a single run moves through its states, and the ledger that makes double-execution impossible.</p>
+<h3>Run-state machine</h3>
+<pre><code>                                        ┌───────────┐
+                          ┌── read ───▶ │ Recovering │
+                          │             └─────┬─────┘
+                          │       hiccup      │ back
+RECEIVED ─checks─▶ ADMITTED ─login─▶ WORKING ─┤
+                                        │ &quot;no&quot;─▶ DECLINED (clean business &quot;no&quot;)
+                                        │
+                                 trigger│
+                                        ▼
+                                    PREPARED ─▶ AWAIT TRIGGER ─approval─▶ TRIGGERING ─confirmed─▶ CONFIRMED
+                                   (filled in,   (waiting for            (submit fired)          (money moved)
+                                    stopped)      go-ahead)                   │
+                                                                    no conf 20s│
+   IF SOMETHING GOES WRONG                                                     ▼
+   FROZEN ─▶ ESCALATED ─▶ STOPPED SAFE                                     UNKNOWN
+   (no further  (human    (nothing                              (did it post? human/reconcile)
+    actions)     takes     half-done)
+                 over)
+
+The one red arrow:  PREPARED ─▶ TRIGGERING fires only on an outside approval.
+                    There is no other path into TRIGGERING.
+</code></pre>
+<p>These are <strong>guards, not labels.</strong> The reason for a real state machine instead of a simple status field: with a status field, code could just <em>set</em> a run to &quot;done&quot;; with guarded states, the dangerous transitions are impossible to reach by accident, and you can prove it in a test.</p>
+<h3>The intent ledger</h3>
+<p>Every money-moving intent gets one row in one table. <code>intent_key</code> is the primary key, refusing to let two rows with the same intent exist.</p>
+<pre><code class="language-sql">CREATE TABLE intent_ledger (
+  intent_key   uuid PRIMARY KEY,          -- the dedup guarantee lives here
+  task         text NOT NULL,
+  task_version text NOT NULL,
+  tenant       text NOT NULL,
+  member_ref   text NOT NULL,             -- hashed reference, never raw PII
+  state        text NOT NULL CHECK (state IN
+                 (&#39;created&#39;,&#39;prepared&#39;,&#39;triggered&#39;,&#39;confirmed&#39;,&#39;aborted&#39;,&#39;unknown&#39;)),
+  receipt      jsonb,                      -- readback: confirmation number, screen hash
+  created_at   timestamptz DEFAULT now(),
+  updated_at   timestamptz
+);
+</code></pre>
+<h3>Task definition format</h3>
+<p>A task is an explicit state machine over screens: each step is a <code>require</code> (check the screen) then an <code>act</code>, and <code>expect</code> lists the named outcomes — where business results like &quot;not found&quot; are branches, not errors.</p>
+<pre><code class="language-yaml">task: transfer_funds
+version: 1.4.0
+label: irreversible
+
+steps:
+  - id: open_member          # check-then-act: verify screen, then act
+    require: {screen: member_search}
+    act: [{type_into: member_id, value: &quot;{member_ref}&quot;}, {press: Enter}]
+    expect:
+      ok:        {screen: member_summary, then: fill_form}
+      not_found: {then: decline MEMBER_NOT_FOUND}   # a business &quot;no&quot; is a branch, not an error
+
+  - id: fill_form
+    require: {screen: transfer_form}
+    act: [set from_acct, set to_acct, set amount]    # each typed value is read back to confirm
+    expect:
+      ok:           {then: gate}
+      insufficient: {then: decline INSUFFICIENT_FUNDS}
+
+  - id: gate                 # prepared-then-triggered lives here
+    require: {screen: transfer_confirm, match: {from, to, amount}}   # confirm screen matches inputs
+    hold_for: trigger        # ledger -&gt; PREPARED; waits for outside approval
+
+  - id: submit
+    act: {click: submit, single_fire: true}          # fires once, never retried blind
+    expect:
+      ok:      {screen: receipt, then: capture}
+      timeout: {after_ms: 20000, then: unknown_protocol}   # clicked but no confirmation
+
+  - id: capture
+    act: {read: confirmation_number into outputs}
+    finish: completed        # ledger -&gt; CONFIRMED
+
+recoveries:                  # known interruptions, handled and resumed
+  session_expired: {guard: no_irreversible_act_yet, do: [login, relocate, resume]}
+
+unknown_protocol: {ledger: lock, escalate: &quot;query the account BEFORE any retry&quot;}
+</code></pre>
+<p>A read task like <code>get_balance</code> is the same shape with far fewer steps, no gate, and no ledger, because it moves nothing.</p>
+<p>Beyond what any single task file says, the engine enforces three things no task can override: a failed check halts with zero further actions, an action never fires twice blindly, and retry behavior is set by the label, not configured per step.</p>
+<p><strong>If the executor crashes mid-run.</strong> We save each state change <em>before</em> taking the action that follows, and running executors send heartbeats. A run whose executor died is detectable, and how it recovers depends on where it was. If it hadn&#39;t done anything irreversible yet, it closes safely and the session is dropped. If it was parked at <code>prepared</code> (filled in, waiting for the trigger), it stays there, because the go-ahead outlives the crashed process. If it crashed <em>between clicking submit and seeing the confirmation</em>, it goes to <code>unknown</code> — the same &quot;did the money move?&quot; state — and a human resolves it by checking before doing anything. Nothing orphaned is ever silently re-run; re-running is a retry, and retry rules come from the label.</p>
+<hr>
+<h2>3. Driving the UI</h2>
+<p>This is how the executor actually operates a screen. The whole approach is one loop: <strong>look at the page, figure out which screen it is, find the field, act on it, then verify the act landed.</strong></p>
+<p><strong>Looking at the page.</strong> Instead of screenshotting the page and guessing at pixels, we ask the browser itself what it rendered. One call (Chrome DevTools Protocol&#39;s <code>DOMSnapshot</code>) returns a flat list of every visible element, its text, and where it sits on screen, across all frames. Pixels get used in only two places: masked screenshots kept as evidence for humans, and a last-resort OCR path for surfaces that expose no structure at all. Because we rely on where things render, the runner is pinned to a fixed window size, resolution, and fonts, so the layout is the same every run.</p>
+<p><strong>Which screen is this?</strong> Each screen we care about has a <strong>signature</strong> — a few text labels that must all be present (optionally a title or URL). A single function, <code>identify()</code>, checks the current page against those signatures and returns the screen&#39;s name, or <code>UNKNOWN</code>. This function checks before it acts, and it&#39;s how we match an outcome to an expected branch, and how we continue after recovery.</p>
+<p><strong>Finding a field.</strong> Each element (the amount box, the submit button) carries an ordered list of ways to find it, tried top to bottom. A tier has to match <em>exactly one</em> element; if it matches two (a page rendered the submit button twice), that tier fails and we fall to the next, or halt. The primary way is by its <strong>label</strong>: the input just right of or below the text &quot;Amount.&quot; Labels are what human operators navigate by and the most stable thing on a legacy screen. When there&#39;s no usable label, we fall back, in order: to structural position from a nearby landmark, then to a text pattern (for reading a value like <code>$1,234.56</code>), and lastly, on a pixel-only surface, image matching.</p>
+<p>We log <em>which</em> tier matched on every action. If tier 1 quietly starts failing over to tier 2 across runs, that&#39;s the earliest warning that a screen changed — visible before anything actually breaks.</p>
+<p>Right before acting, we re-locate the target from a fresh look at the page, so if a popup or re-render slipped in since the check, the click either can&#39;t find its target or fails verification, and we halt instead of acting on a changed page.</p>
+<p>On old frameset apps, which split a page into embedded sub-documents, the frame is part of an element&#39;s location, so we act in the right one.</p>
+<p><strong>Waiting.</strong> Never a blind <code>sleep</code>. We wait on a <em>condition</em> being true (the screen is right, the spinner is gone, a value stopped changing) with a time budget: 15 s for a page load, 5 s within a screen, 20 s after a submit. If the budget runs out: one retry, then a hard stop for reversible waits — that&#39;s how we tell &quot;slow&quot; from &quot;dead.&quot; The retry budget follows <strong>reversibility</strong>: reads and navigation retry once; the one irreversible action (submit) gets zero blind retries. When submit&#39;s wait budget blows, we don&#39;t retry — we reconcile.</p>
+<p><strong>Acting.</strong> Every action is verified: type a value then read it back, click then wait for the expected next screen. On an API-less legacy app, that readback is the only receipt you get. And actions fire exactly once — a re-clicked submit is a double transfer.</p>
+<p><strong>One interface, many surfaces.</strong> All of the above hides behind one small driver interface. The <em>task</em> never changes across surfaces; only the driver beneath it does:</p>
+<pre><code>interface Driver:
+  snapshot()               -&gt; Snapshot        # normalized element table
+  resolve(chain, snapshot) -&gt; ElementRef|None # records which tier fired
+  read(ref)                -&gt; str
+  set(ref, value)          -&gt; None            # native input dispatch
+  click(ref)               -&gt; None
+  press(key)               -&gt; None
+  screencast(enable: bool) -&gt; None            # takeover only (§5)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Snapshot from</th>
+<th>Anchor means</th>
+<th>Postcondition means</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DOM (web, legacy web)</td>
+<td>CDP <code>DOMSnapshot</code> across frames</td>
+<td>label text + geometry, landmark path</td>
+<td>readback of field text; <code>identify()</code> of next screen</td>
+</tr>
+<tr>
+<td>UIA / Java Access Bridge (desktop)</td>
+<td>OS accessibility tree</td>
+<td>automation-id path, then name + control type</td>
+<td>control value re-read; window/state assert</td>
+</tr>
+<tr>
+<td>Anchored OCR (pixel floor)</td>
+<td>screenshot in pinned environment</td>
+<td>anchor image + offset + OCR region</td>
+<td>type-then-verify mandatory: re-read what landed</td>
+</tr>
+</tbody></table>
+<p><strong>Where the model is, and isn&#39;t.</strong> A model explores a new app <em>offline</em>, under human supervision, and proposes the screen signatures and locator chains, which a human reviews. At runtime it&#39;s absent: it doesn&#39;t look at screens, doesn&#39;t pick targets, doesn&#39;t decide whether to proceed, never fires money. Three reasons: replaying zero-judgment work should be deterministic; a vision call every step would be ~100× the cost and latency on UIs that barely change; and improvised behavior can&#39;t be reviewed or audited. The one narrow exception is the bounded fallback in §9, and it ships in shadow mode first.</p>
+<hr>
+<h2>4. Runtime errors and exceptional states</h2>
+<p><strong>Classification is declarative, not heuristic.</strong> Every step declares the expected edge/outcome. After acting, the executor identifies the state and matches it against those edges in order. The outcomes/taxonomy therefore live in the task definition, where they&#39;re reviewed, versioned, and grown deliberately.</p>
+<p>There are three kinds of outcome, and the kind decides what happens:</p>
+<ol>
+<li><strong>A business outcome</strong> is a real answer from the bank — &quot;no member found,&quot; &quot;insufficient funds.&quot; It returns a typed decline (the caller sees <code>declined MEMBER_NOT_FOUND</code>), and the ledger is never touched.</li>
+<li><strong>A recoverable outcome</strong> is a known interruption we can handle and continue past, like the session expiring mid-flow. We log back in, re-find our place, and resume; the caller never knows.</li>
+<li><strong>A hard outcome</strong> is anything we didn&#39;t expect, like an unexpected screen or dialog. We freeze with zero further actions, capture, and escalate.</li>
+</ol>
+<p>Every hard outcome a human resolves becomes a candidate for a new outcome/edge in the next version of the task, reviewed like any other change. We don&#39;t guess with money.</p>
+<p>The three hard cases share the same immediate behavior (freeze, capture, escalate) but route differently: an unexpected screen <strong>suspends</strong> that task for that tenant pending review, a dead permission <strong>disables</strong> it and pages operations, and a never-seen screen just <strong>escalates</strong>.</p>
+<p><strong>Service outages.</strong> Per (tenant, application), the executor keeps a health check: <code>up → suspect → down → probing → up</code>.</p>
+<ul>
+<li><strong>Detection.</strong> While running, we may hit a page that won&#39;t load, a gateway timeout, or a maintenance page. We retry once (in case it&#39;s a fluke) and try to continue. Three flukes across 2 different runs (not just 1, because it could be the session) is a cause for suspicion.</li>
+<li><strong>While it&#39;s down.</strong> We stop opening new sessions against that application, and state &quot;unavailable, try again later.&quot; A background request gets queued with a deadline, and if it expires, we drop it — yesterday&#39;s balance doesn&#39;t matter today.</li>
+<li><strong>Coming back.</strong> A read-only probe runs every couple of minutes, backing off up to fifteen. One clean probe doesn&#39;t mean green light: we bring read-only back first, at half the normal rate. Then reversible tasks, then money-moving ones. Any locked <code>unknown</code> states from before get resolved (check-first) before any queued money task runs.</li>
+</ul>
+<p><strong>Human-only mode.</strong> In some cases staff can use the app fine and only our automation is blocked. The institution can flip the affected tasks to assist mode: we still validate the inputs and check the ledger, and produce fully prepared work items, but a human does the actual clicking in their own session, with us reading final states to close the run.</p>
+<hr>
+<h2>5. Escalation: pause, cede, resume</h2>
+<p>When a run gets stuck, a human takes over the live session, finishes or fixes it, and hands control back. We designed the system to be a checkpointed state machine, so human intervention is just another state.</p>
+<p><strong>Stuck</strong> is our hard edge: a step that blew its time budget, or a run that blew its total budget. The executor stops at the failed check, with zero actions taken past it, and leaves the browser session alive and parked for the human to look into.</p>
+<p><strong>The work item.</strong> The human doesn&#39;t get an alert; they get a work item with everything they need to act:</p>
+<pre><code class="language-json">{
+  &quot;ticket&quot;: &quot;wi_5590&quot;, &quot;lane&quot;: &quot;member_waiting&quot;,
+  &quot;run&quot;: &quot;r_01HXQ...&quot;, &quot;task&quot;: &quot;transfer_funds@1.4.0&quot;, &quot;step&quot;: &quot;review&quot;,
+  &quot;failed_check&quot;: {&quot;expected&quot;: &quot;screen transfer_confirm&quot;,
+                   &quot;observed&quot;: &quot;dialog: &#39;Account flagged for review&#39;&quot;},
+  &quot;inputs_masked&quot;: {&quot;from_acct&quot;: &quot;****1204&quot;, &quot;to_acct&quot;: &quot;****9917&quot;, &quot;amount&quot;: &quot;$250.00&quot;},
+  &quot;actions_taken&quot;: [{&quot;step&quot;: &quot;fill_form&quot;, &quot;irreversible&quot;: false}],
+  &quot;ledger_state&quot;: &quot;created&quot;,
+  &quot;evidence&quot;: [&quot;masked capture at freeze&quot;, &quot;step trace&quot;],
+  &quot;live_session&quot;: {&quot;view_url&quot;: &quot;...&quot;, &quot;control_url&quot;: &quot;...&quot;, &quot;expires_in_s&quot;: 900}
+}
+</code></pre>
+<p>The failed check is written in plain domain words (&quot;expected the confirm screen, saw an &#39;account flagged&#39; dialog&quot;), everything already done is listed (including anything irreversible), and the only actions offered are the ones that are legal for this kind of failure.</p>
+<p>This &quot;account flagged&quot; dialog is a live example of the loop in §4. In v1.4.0 it wasn&#39;t a declared outcome, so it hit as a hard case and escalated, exactly what the work item above shows. A human resolved it, and v1.5.0 adds it as a declared branch. From then on the same screen returns cleanly as <code>ACCOUNT_RESTRICTED</code> instead of escalating.</p>
+<p><strong>Cede.</strong> The runner&#39;s browser runs headed inside its container, so the human drives the <em>same</em> frozen session instead of starting over. However, viewing and controlling are separate permissions, and control is an exclusive lock with a timeout, so the executor and the human are never both acting at once. Every input the human sends is recorded as theirs.</p>
+<p><strong>Resume, three ways</strong>, because we can&#39;t just continue blindly. We either:</p>
+<ul>
+<li><strong>Resume at a step</strong> — re-check against the live screen for the step&#39;s expected screen.</li>
+<li><strong>Complete by hand</strong> — the human finishes it, so we run our final verification and checks and close the ledger.</li>
+<li><strong>Abort</strong> — we stop.</li>
+</ul>
+<p>Every one of these resumes is captured as a recording (what screen we found, what the human did, what screen we left on), which becomes the raw material for the next version of the task — so each escalation makes the next one less likely.</p>
+<hr>
+<h2>6. Safety and data handling</h2>
+<p>How do we guarantee the agent can only do permitted things? Not with a permissions list, but through design.</p>
+<ol>
+<li><strong>The catalog.</strong> If a task doesn&#39;t exist in the catalog, the agent can&#39;t ask for it.</li>
+<li><strong>Inside a task,</strong> the executor can only do the steps that are written and reviewed. There&#39;s no discovery or <code>click()</code> command the caller sees. Unlisted/unreviewed actions are impossible to express in our system.</li>
+<li><strong>Money-moving steps</strong> fill in everything, <strong>stop at the confirmation screen</strong>, and only fire on an outside go-ahead. A money-moving task fills the form all the way to the final confirmation screen and then stops. At that point we check the on-screen summary against the typed inputs, the ledger sits at <code>prepared</code>, and the submit only fires when an outside authority says go — a human, or a rule the institution set.</li>
+</ol>
+<p>We start all tasks off under human review, until enough clean supervised runs at that institution accumulate, and only then can they auto-run. A good success rate never bypasses this system.</p>
+<p><strong>Secrets.</strong> Credentials live in a vault and are injected only during the login step. So we record &quot;typed password&quot; and not the password. For MFA, the code secret lives with us — unless the org disagrees, in which case it becomes a human step.</p>
+<p><strong>Member data.</strong> We verify against what&#39;s on the live screen, but we don&#39;t <em>store</em> raw values. Evidence is masked at the moment it&#39;s written (last four digits) so a screenshot or trace can be redacted without weakening the check that already ran against the live value.</p>
+<p><strong>Sessions</strong> are pooled per (institution, app, service account). On single-session legacy apps, where a second login kicks the first, the pool size is 1 — so the queue <em>is</em> the concurrency answer: a second run waits rather than corrupting the first. Sessions are invalidated on a version bump or an outage.</p>
+<hr>
+<h2>7. Evidence and observability</h2>
+<p>Every run writes a trace, one event per line, from a fixed set of event types. So we can see: run created, each policy check, the login, each screen identified, each check (with expected vs. what we saw), each action (with which locator tier fired), each readback, which branch was taken, any recovery, any escalation, any human takeover (with the human&#39;s identity), who or what approved a trigger, each ledger move, and the final result.</p>
+<pre><code class="language-json">{&quot;run&quot;:&quot;r_01HXQ&quot;,&quot;ev&quot;:&quot;run_created&quot;,&quot;task&quot;:&quot;transfer_funds&quot;,&quot;ver&quot;:&quot;1.4.0&quot;,&quot;tenant&quot;:&quot;cu_047&quot;,&quot;keys&quot;:{&quot;http&quot;:&quot;...&quot;,&quot;intent&quot;:&quot;...&quot;}}
+{&quot;run&quot;:&quot;r_01HXQ&quot;,&quot;ev&quot;:&quot;check&quot;,&quot;step&quot;:&quot;fill_form&quot;,&quot;expect&quot;:{&quot;screen&quot;:&quot;transfer_form&quot;},&quot;observed&quot;:&quot;transfer_form&quot;,&quot;pass&quot;:true}
+{&quot;run&quot;:&quot;r_01HXQ&quot;,&quot;ev&quot;:&quot;act&quot;,&quot;step&quot;:&quot;fill_form&quot;,&quot;kind&quot;:&quot;type_into&quot;,&quot;target&quot;:&quot;transfer_form.amount&quot;,&quot;tier&quot;:1,&quot;readback&quot;:&quot;pass&quot;}
+{&quot;run&quot;:&quot;r_01HXQ&quot;,&quot;ev&quot;:&quot;check&quot;,&quot;step&quot;:&quot;review&quot;,&quot;expect&quot;:{&quot;screen&quot;:&quot;transfer_confirm&quot;},&quot;observed&quot;:&quot;dialog:&#39;Account flagged for review&#39;&quot;,&quot;pass&quot;:false,&quot;actions_after&quot;:0,&quot;capture&quot;:&quot;sha256:ab12...&quot;}
+{&quot;run&quot;:&quot;r_01HXQ&quot;,&quot;ev&quot;:&quot;escalation_created&quot;,&quot;wi&quot;:&quot;wi_5590&quot;,&quot;lane&quot;:&quot;member_waiting&quot;}
+</code></pre>
+<p><strong>Two readers, two needs.</strong> For debugging, the trace is a step-by-step timeline: at any freeze you see exactly what screen was expected versus what showed up, which tier found each field, and a masked screenshot at the boundary.</p>
+<p>For an auditor, the trace turns an investigation into a query: for any run you can answer who acted (our service identity, plus the human on any takeover), under which task and version, reviewed and approved by whom, for which member, when, with what result, and who or what fired the money step.</p>
+<p><strong>What we watch.</strong> Per task, per version, per institution: the mix of outcomes (completed, each decline reason, escalated, stopped), the escalation rate, the count of <code>unknown</code> states (any nonzero pages someone), which locator tiers are firing, and step timings. The two early-warning signals are <strong>locator-tier drift</strong> (tier 1 quietly failing over to tier 2) and a <strong>shift in the decline mix</strong> — both of which show up <em>before</em> a member ever hits a failure.</p>
+<hr>
+<h2>8. Generalization</h2>
+<p>~200 institutions run the same few vendor products. We can therefore reuse what we build.</p>
+<p><strong>One base per (vendor, version), plus a small per-institution overlay.</strong> The base task and screen model are written once for a vendor product. Each institution gets an overlay: a small data file of local differences (here the field says &#39;Member No.&#39; not &#39;Member Number&#39;).</p>
+<p>As long as the overlay stays small, this institution is basically running the same task, just with local label swaps. But if an institution&#39;s overlay keeps <em>growing</em> — the moment it needs logic (if/else) — it&#39;s not config anymore, and it has to become part of the program. That is the <strong>fork threshold.</strong></p>
+<p><strong>Everything is pinned.</strong> Each institution runs a specific version of a task and screen model. Fixes go to a few partner institutions first, then roll out in waves. A stale task suspends itself rather than improvising.</p>
+<p><strong>Onboarding a new institution is not a project.</strong> Run through their apps with our discovery agent, match each to a known vendor and version, inherit that base, generate their overlay through supervised read-only runs, and have their own staff validate and sign.</p>
+<hr>
+<h2>9. Extensions</h2>
+<ul>
+<li><strong>Reusability / catalog:</strong> the design and tasks are already versioned, typed, and discoverable.</li>
+<li><strong>Code generation:</strong> because a screen model is already a map of element-name to locator (a Playwright &quot;page object&quot;), and a task is already an ordered list of steps, we can mechanically emit a runnable Playwright test from a completed task. We get a test suite for free from the artifacts we already have.</li>
+<li><strong>Confidence &amp; approval:</strong> a task starts as a draft and only becomes approved for real use after it&#39;s run cleanly under supervision enough times; how many scales with the label — more for money-moving tasks than for read-only.</li>
+<li><strong>Assisted fallback:</strong> on a hard failure, the model may propose <em>one</em> bounded recovery step from a fixed menu, policy-checked, read-only, shipped to a shadow env first. The halt stays the default; this is the graduated exception.</li>
+<li><strong>Cross-tenant reuse:</strong> base + overlay is the mechanism; the fork threshold is the rule.</li>
+<li><strong>Multi-run stability:</strong> run a read task repeatedly, report a flakiness signal per step.</li>
+</ul>
+
+</main>
+<footer>
+  <span>Tarek Soufi · legacy-banking-automation</span>
+  <span><a href="index.html">home</a> · <a href="walkthrough.html">run</a></span>
+</footer>
+</body>
+</html>
