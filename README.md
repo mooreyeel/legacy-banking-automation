@@ -11,6 +11,7 @@ An AI system that operates legacy back-office bank applications **that have no A
 | **`index.html`** | The presentation site — explains the whole system in a visual scroll and hands off to the live demo. **Start here.** |
 | **`walkthrough.html`** | The interactive demo. An executor drives a mock legacy bank screen through three scenarios — happy path, phantom send, escalation. Press `Step` or space to advance. |
 | **`DESIGN.md`** | The full design document (sections 0–9): task contract, execution model, driving the UI, error taxonomy, escalation, safety, evidence, generalization. The depth. |
+| **`executor/`** | A **runnable** ~400-line miniature — the design actually executing against a real (ugly) mock legacy UI via Playwright. `python run.py happy\|phantom\|escalate`. See [`executor/README.md`](executor/README.md). |
 | **`deck.html`** | Static slide version — backup diagrams. |
 
 ## View it
