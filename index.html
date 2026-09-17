@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Driving the UI — automating legacy banking apps that have no API</title>
+<meta name="description" content="A design for an AI system that operates legacy back-office bank applications through their UI — reliably, cheaply, auditably. Interactive walkthrough included."/>
+<style>
+  :root{
+    --bg:#0b0e14;--bg2:#0a0d13;--panel:#101725;--panel2:#141a25;
+    --ink:#e8edf5;--muted:#93a0b4;--faint:#5b6678;--line:#232c3d;
+    --accent:#5aa9ff;--accent2:#38d6b0;--danger:#ff6b6b;--warn:#f6c453;--ok:#38d6b0;
+    --mono:ui-monospace,Menlo,"SF Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Arial,sans-serif;
+    --maxw:1080px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
+    -webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,.mono{font-family:var(--mono)}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 1.4rem}
+  .accent{color:var(--accent)}
+  .accent2{color:var(--accent2)}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:40;backdrop-filter:blur(10px);
+    background:rgba(10,13,19,.72);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:1rem;height:54px}
+  nav .brand{font-weight:700;font-size:.95rem;letter-spacing:.01em}
+  nav .brand .m{font-family:var(--mono);color:var(--accent2);font-size:.8rem}
+  nav .links{margin-left:auto;display:flex;gap:1.1rem;align-items:center;font-size:.86rem}
+  nav .links a{color:var(--muted)}
+  nav .links a:hover{color:var(--ink);text-decoration:none}
+  nav .cta{background:var(--accent);color:#062038 !important;padding:.4em .9em;border-radius:8px;
+    font-weight:700;font-size:.82rem}
+  nav .cta:hover{filter:brightness(1.08);text-decoration:none}
+  @media(max-width:760px){nav .links a:not(.cta){display:none}}
+
+  /* hero */
+  header.hero{position:relative;overflow:hidden;padding:5.5rem 0 3.5rem;
+    background:
+      radial-gradient(1200px 500px at 78% -8%,rgba(90,169,255,.16),transparent 60%),
+      radial-gradient(900px 420px at 5% 8%,rgba(56,214,176,.10),transparent 55%);}
+  .kicker{font-family:var(--mono);font-size:.78rem;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent2);margin-bottom:1rem}
+  h1{font-size:clamp(2.1rem,5vw,3.5rem);line-height:1.05;margin:0 0 1rem;letter-spacing:-.02em;font-weight:800}
+  h1 .grad{background:linear-gradient(100deg,#7ab8ff,#38d6b0);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{font-size:clamp(1.05rem,2.2vw,1.3rem);color:var(--muted);max-width:640px;margin:0 0 2rem}
+  .lede b{color:var(--ink);font-weight:600}
+  .btns{display:flex;gap:.7rem;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:.5em;padding:.7em 1.25em;border-radius:10px;
+    font-weight:700;font-size:.95rem;border:1px solid var(--line);background:var(--panel2);color:var(--ink)}
+  .btn:hover{border-color:var(--accent);text-decoration:none}
+  .btn.primary{background:var(--accent);color:#062038;border-color:var(--accent)}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn .arw{transition:transform .15s}
+  .btn:hover .arw{transform:translateX(3px)}
+  .heronote{margin-top:1.8rem;font-size:.82rem;color:var(--faint)}
+
+  /* sections */
+  section{padding:3.4rem 0;border-top:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.15em;text-transform:uppercase;color:var(--accent2);margin-bottom:.7rem}
+  h2{font-size:clamp(1.5rem,3.3vw,2.1rem);line-height:1.12;margin:0 0 .7rem;letter-spacing:-.01em;font-weight:800}
+  h2 .n{font-family:var(--mono);color:var(--faint);font-weight:600;font-size:.7em;margin-right:.5em}
+  .sub{color:var(--muted);max-width:680px;font-size:1.05rem;margin:0 0 1.8rem}
+  h3{font-size:1.08rem;margin:0 0 .4rem;font-weight:700}
+  p{margin:.6rem 0}
+  .muted{color:var(--muted)}
+
+  /* the problem callout */
+  .frame{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.4rem 1.5rem}
+  .frame.hi{border-color:rgba(246,196,83,.4);
+    background:linear-gradient(180deg,rgba(246,196,83,.06),transparent)}
+
+  /* cards grid */
+  .grid{display:grid;gap:1rem}
+  .grid.c2{grid-template-columns:repeat(2,1fr)}
+  .grid.c3{grid-template-columns:repeat(3,1fr)}
+  .grid.c5{grid-template-columns:repeat(5,1fr)}
+  @media(max-width:860px){.grid.c3,.grid.c5{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.grid.c2,.grid.c3,.grid.c5{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1.1rem 1.2rem;
+    transition:border-color .2s,transform .2s}
+  .card:hover{border-color:#31405b}
+  .card .num{font-family:var(--mono);color:var(--accent);font-size:.8rem;font-weight:700}
+  .card h3{margin-top:.3em}
+  .card p{color:var(--muted);font-size:.92rem;margin:.3rem 0 0}
+
+  /* the loop */
+  .loop{display:flex;align-items:stretch;gap:.5rem;flex-wrap:wrap;margin:.5rem 0 1.4rem}
+  .loop .stepc{flex:1;min-width:140px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:.9rem 1rem}
+  .loop .stepc .t{font-family:var(--mono);color:var(--accent2);font-size:.72rem;text-transform:uppercase;letter-spacing:.1em}
+  .loop .stepc h3{font-size:1rem;margin:.35em 0 .2em}
+  .loop .stepc p{font-size:.85rem;color:var(--muted);margin:0}
+  .loop .arrow{align-self:center;color:var(--faint);font-size:1.3rem}
+  @media(max-width:760px){.loop .arrow{display:none}}
+
+  /* state machine diagram (money path) */
+  .track{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.6rem 1.3rem;overflow-x:auto}
+  .flow{display:flex;align-items:center;gap:.35rem;min-width:640px}
+  .node{border:1px solid var(--line);border-radius:10px;padding:.6rem .8rem;text-align:center;min-width:96px;background:var(--bg2)}
+  .node .s{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .node .d{font-size:.72rem;color:var(--faint);margin-top:.15em}
+  .node.prepared{border-color:var(--warn);box-shadow:0 0 0 1px rgba(246,196,83,.25) inset}
+  .node.prepared .s{color:var(--warn)}
+  .node.trig{border-color:var(--danger);box-shadow:0 0 0 1px rgba(255,107,107,.25) inset}
+  .node.trig .s{color:var(--danger)}
+  .node.done{border-color:var(--ok)}
+  .node.done .s{color:var(--ok)}
+  .edge{color:var(--faint);font-family:var(--mono);font-size:.7rem;white-space:nowrap;display:flex;flex-direction:column;align-items:center;padding:0 .1rem}
+  .edge .lab{color:var(--muted);margin-bottom:-.2em}
+  .edge.red{color:var(--danger)}
+  .edge.red .arw{color:var(--danger);font-size:1.2rem;font-weight:700}
+  .edge .arw{font-size:1.1rem}
+  .rednote{margin-top:1rem;display:flex;gap:.6rem;align-items:flex-start;
+    background:rgba(255,107,107,.07);border:1px solid rgba(255,107,107,.3);border-radius:10px;padding:.8rem 1rem}
+  .rednote .big{color:var(--danger);font-size:1.3rem;line-height:1}
+  .rednote p{margin:0;font-size:.92rem;color:#f0c9c9}
+  .rednote b{color:#fff}
+
+  /* scenario cards */
+  .scen{display:block;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.3rem 1.4rem;
+    color:var(--ink);transition:border-color .2s,transform .2s;height:100%}
+  .scen:hover{border-color:var(--accent);text-decoration:none;transform:translateY(-2px)}
+  .scen .tag{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;padding:.2em .6em;border-radius:999px;display:inline-block}
+  .scen.happy .tag{color:var(--ok);border:1px solid var(--ok)}
+  .scen.phantom .tag{color:var(--warn);border:1px solid var(--warn)}
+  .scen.escalate .tag{color:var(--danger);border:1px solid var(--danger)}
+  .scen h3{margin:.7rem 0 .3rem;font-size:1.15rem}
+  .scen p{color:var(--muted);font-size:.92rem;margin:.3rem 0 .8rem}
+  .scen .play{font-size:.85rem;color:var(--accent);font-weight:700}
+
+  /* pull quotes / principle */
+  .quote{font-size:1.25rem;line-height:1.4;color:var(--ink);border-left:3px solid var(--accent2);
+    padding:.2rem 0 .2rem 1.2rem;margin:1.4rem 0;max-width:720px}
+  .quote .m{font-family:var(--mono);color:var(--accent2)}
+
+  /* code block */
+  pre{background:#080b11;border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem;overflow-x:auto;
+    font-family:var(--mono);font-size:.82rem;line-height:1.55;color:#c7d2e2;margin:1rem 0}
+  pre .c{color:var(--faint)}
+  pre .k{color:var(--accent2)}
+  pre .r{color:var(--danger)}
+
+  /* tiers list */
+  .tiers{counter-reset:t;display:grid;gap:.6rem;margin:1rem 0}
+  .tier{display:flex;gap:.9rem;align-items:baseline;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.7rem .9rem}
+  .tier .lvl{font-family:var(--mono);color:var(--accent);font-size:.8rem;font-weight:700;min-width:52px}
+  .tier b{font-weight:700}
+  .tier span{color:var(--muted);font-size:.9rem}
+
+  /* two-col */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:760px){.cols{grid-template-columns:1fr}}
+
+  /* footer */
+  footer{border-top:1px solid var(--line);padding:2.6rem 0 3.4rem;color:var(--faint);font-size:.86rem}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;justify-content:space-between}
+  footer a{color:var(--muted)}
+
+  /* scroll reveal */
+  .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.in{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <span class="brand">Driving&nbsp;the&nbsp;UI <span class="m">· legacy-banking</span></span>
+    <div class="links">
+      <a href="#problem">Problem</a>
+      <a href="#loop">How it works</a>
+      <a href="#money">The money path</a>
+      <a href="#scenarios">Scenarios</a>
+      <a href="DESIGN.md">Full design</a>
+      <a class="cta" href="walkthrough.html">▶ Watch it run</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">Computer-use agents · no-API automation</div>
+    <h1>Operating legacy bank apps<br><span class="grad">that have no API.</span></h1>
+    <p class="lede">Banks and credit unions run back-office software with no way in but the screen. This is a design for an AI system that <b>drives that UI like a human would</b> — moving real money <b>reliably, cheaply, and auditably</b>, and stopping to hand a live session to a person the instant it can't proceed safely.</p>
+    <div class="btns">
+      <a class="btn primary" href="walkthrough.html">▶ Watch it run <span class="arw">→</span></a>
+      <a class="btn" href="#loop">How it works</a>
+      <a class="btn" href="DESIGN.md">Read the full design</a>
+      <a class="btn" href="deck.html">Slides</a>
+    </div>
+    <p class="heronote">An interactive walkthrough of the executor driving a mock legacy screen — happy path, a phantom send, and an escalation. Press <span class="mono">Step</span> or space to advance.</p>
+  </div>
+</header>
+
+<!-- PROBLEM -->
+<section id="problem">
+  <div class="wrap reveal">
+    <div class="eyebrow">The problem</div>
+    <h2>No API. Just the screen the staff already use.</h2>
+    <p class="sub">The only integration surface is the UI. So the agent calls a typed task — and behind it, our system signs in and works the screens like a person, one guarded step at a time.</p>
+    <pre><span class="c"># The agent never touches a screen. It calls a typed task and gets a typed answer.</span>
+transfer_funds(from_acct, to_acct, amount, <span class="k">intent_key</span>)
+   → <span class="k">{ confirmation_number, posted_at }</span>        <span class="c"># it worked</span>
+   → <span class="r">declined INSUFFICIENT_FUNDS</span>              <span class="c"># a clean business "no"</span>
+   → <span class="k">escalation</span> { work_item, live_session }   <span class="c"># a human is handling it</span></pre>
+    <p class="muted">Every task returns the same envelope: a status, then exactly one of <b>outputs</b>, a typed <b>decline</b>, or an <b>escalation</b>. No UI words, no selectors, no stack traces — an agent developer can write complete handling code from the contract alone.</p>
+  </div>
+</section>
+
+<!-- PRINCIPLES -->
+<section id="principles">
+  <div class="wrap reveal">
+    <div class="eyebrow">The five rules everything obeys</div>
+    <h2>Safety by design, not by a permissions list.</h2>
+    <p class="sub">These aren't guidelines bolted on top. They're structural — the dangerous moves are impossible to express in the system.</p>
+    <div class="grid c5">
+      <div class="card"><div class="num">01</div><h3>Fail = stop</h3><p>A failed check halts with zero further actions. Never act on a page you haven't confirmed.</p></div>
+      <div class="card"><div class="num">02</div><h3>Fire once</h3><p>An action never fires twice blindly. A re-clicked submit is a double transfer.</p></div>
+      <div class="card"><div class="num">03</div><h3>Two keys for money</h3><p>Nothing irreversible fires without a ledger proof this intent hasn't run <i>and</i> an outside go-ahead.</p></div>
+      <div class="card"><div class="num">04</div><h3>No model at runtime</h3><p>The model works offline, authoring under review. Runtime is deterministic replay.</p></div>
+      <div class="card"><div class="num">05</div><h3>Nothing raw stored</h3><p>Checks verify live screen values; evidence is masked the moment it's written.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- THE LOOP -->
+<section id="loop">
+  <div class="wrap reveal">
+    <div class="eyebrow">How it works · one loop, every step</div>
+    <h2>Look → identify → locate → act → verify.</h2>
+    <p class="sub">The executor never assumes it knows where it is. Every single step re-derives the world from a fresh look at the page, then verifies the act landed before moving on.</p>
+    <div class="loop">
+      <div class="stepc"><div class="t">Look</div><h3>Read the render</h3><p>Ask the browser what it drew (a DOM snapshot across frames), not the pixels.</p></div>
+      <div class="arrow">→</div>
+      <div class="stepc"><div class="t">Identify</div><h3>Which screen?</h3><p>Match the page against a signature — labels that must all be present. Else <span class="mono">UNKNOWN</span>.</p></div>
+      <div class="arrow">→</div>
+      <div class="stepc"><div class="t">Locate</div><h3>Find the field</h3><p>Resolve by tier: label → structure → text → image. Log which tier fired.</p></div>
+      <div class="arrow">→</div>
+      <div class="stepc"><div class="t">Act</div><h3>Do one thing</h3><p>Type or click. Once. Re-located from a fresh snapshot right before acting.</p></div>
+      <div class="arrow">→</div>
+      <div class="stepc"><div class="t">Verify</div><h3>Read it back</h3><p>On an API-less app, the readback is the only receipt you get.</p></div>
+    </div>
+    <div class="quote">“We verify the app <b>accepted</b> the value — not that we pressed the keys. A field you set is not a field the app took.”</div>
+  </div>
+</section>
+
+<!-- LOCATOR TIERS -->
+<section id="locate">
+  <div class="wrap reveal">
+    <div class="eyebrow">Finding a field</div>
+    <h2><span class="n">§3</span>Locator tiers — and drift as an early warning.</h2>
+    <p class="sub">Each element carries an ordered list of ways to find it. A tier must match <i>exactly one</i> element or it fails to the next. We log which tier fired on every action.</p>
+    <div class="tiers">
+      <div class="tier"><span class="lvl">tier 1</span><span><b>Label.</b> The input just right of or below the text "Amount." How a human navigates, and the most stable thing on a legacy screen.</span></div>
+      <div class="tier"><span class="lvl">tier 2</span><span><b>Structure.</b> Position relative to a nearby landmark, when there's no usable label.</span></div>
+      <div class="tier"><span class="lvl">tier 3</span><span><b>Text pattern.</b> For reading a value like <span class="mono">$1,234.56</span>.</span></div>
+      <div class="tier"><span class="lvl">tier 4</span><span><b>Image.</b> Last resort, on a pixel-only surface with no structure at all.</span></div>
+    </div>
+    <div class="frame hi">
+      <h3>💡 The payoff</h3>
+      <p class="muted">When tier 1 quietly starts failing over to tier 2 <i>across runs</i>, that's the earliest signal a screen changed — <b>visible in the logs before a single user-facing failure.</b> Drift detection falls out of the design for free.</p>
+    </div>
+  </div>
+</section>
+
+<!-- THE MONEY PATH -->
+<section id="money">
+  <div class="wrap reveal">
+    <div class="eyebrow">The execution model</div>
+    <h2><span class="n">§2</span>The money path is a guarded state machine.</h2>
+    <p class="sub">Not a status field code could just <i>set</i> to "done." Guarded states make the dangerous transitions impossible to reach by accident — and provable in a test.</p>
+    <div class="track">
+      <div class="flow">
+        <div class="node"><div class="s">created</div></div>
+        <div class="edge"><span class="lab">fill + verify</span><span class="arw">→</span></div>
+        <div class="node prepared"><div class="s">prepared</div><div class="d">filled, stopped</div></div>
+        <div class="edge red"><span class="lab">approval</span><span class="arw">⇒</span></div>
+        <div class="node trig"><div class="s">triggering</div><div class="d">submit fired</div></div>
+        <div class="edge"><span class="lab">confirmed</span><span class="arw">→</span></div>
+        <div class="node done"><div class="s">confirmed</div><div class="d">receipt in ledger</div></div>
+      </div>
+      <div class="rednote">
+        <span class="big">⇒</span>
+        <p><b>The one red arrow.</b> The submit fires <b>only</b> on an outside go-ahead — a human, or a rule the institution set. There is no other path into <span class="mono">TRIGGERING</span>. On timeout the run stays <span class="mono">prepared</span> and never fires. There's no such thing as a filled-but-abandoned transfer floating around.</p>
+      </div>
+    </div>
+    <div class="cols" style="margin-top:1.3rem">
+      <div class="frame">
+        <h3>The intent ledger</h3>
+        <p class="muted">One row per money-moving intent. The <span class="mono">intent_key</span> is the primary key — the database refuses to let two rows with the same intent exist.</p>
+        <pre><span class="k">CREATE TABLE</span> intent_ledger (
+  intent_key uuid <span class="k">PRIMARY KEY</span>,  <span class="c">-- dedup lives here</span>
+  state text <span class="c">-- created|prepared|triggered|</span>
+             <span class="c">--   confirmed|aborted|unknown</span>,
+  receipt jsonb <span class="c">-- confirmation #, screen hash</span>
+);</pre>
+      </div>
+      <div class="frame">
+        <h3>Two keys, two questions</h3>
+        <p class="muted"><b>Idempotency-Key</b> (header) guards the <i>network</i> — replays a lost-then-retried identical call.</p>
+        <p class="muted"><b>intent_key</b> (ledger) guards the <i>money</i> — it gates the UI click itself. A <span class="mono">triggered</span> intent is never re-submitted blind, even if the caller restarts and re-sends fresh. If two executors race, the DB lets exactly one win.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENARIOS -->
+<section id="scenarios">
+  <div class="wrap reveal">
+    <div class="eyebrow">See it happen</div>
+    <h2>Three runs worth watching.</h2>
+    <p class="sub">The interactive walkthrough drives a mock legacy bank screen through each of these. The demo below is the real artifact — click a card to jump into it.</p>
+    <div class="grid c3">
+      <a class="scen happy" href="walkthrough.html">
+        <span class="tag">Happy path</span>
+        <h3>One clean transfer</h3>
+        <p>Fill the form, stop at confirm, take an outside approval, submit once, capture the confirmation number into the ledger receipt.</p>
+        <span class="play">▶ Watch the happy path</span>
+      </a>
+      <a class="scen phantom" href="walkthrough.html">
+        <span class="tag">Phantom send</span>
+        <h3>“Did the money move?”</h3>
+        <p>Submit clicked — confirmation never renders. Don't retry (double-send). Don't abort (it may have worked). A read-only reconcile answers it truthfully.</p>
+        <span class="play">▶ Watch the phantom send</span>
+      </a>
+      <a class="scen escalate" href="walkthrough.html">
+        <span class="tag">Escalation</span>
+        <h3>An unexpected screen</h3>
+        <p>An undeclared "account flagged" dialog. Freeze, capture, escalate — nothing irreversible fired. A human cedes in; next version adds it as a declared branch.</p>
+        <span class="play">▶ Watch the escalation</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- PHANTOM DEEP CUT -->
+<section id="phantom">
+  <div class="wrap reveal">
+    <div class="eyebrow">The scariest state</div>
+    <h2>Never retry blind. Reconcile to a truthful, provable answer.</h2>
+    <p class="sub">A <span class="mono accent2">triggered</span> ledger row with <b>no receipt</b> <i>is</i> the unknown state — the click landed, but the confirmation timed out.</p>
+    <div class="cols">
+      <div class="frame">
+        <h3>What we do</h3>
+        <p class="muted">Run a <b>read-only</b> task — <span class="mono">did_intent_post(intent_key)</span> — that reads the account's recent activity <i>before touching anything.</i> It matches on a stamped reference in the memo where the app allows one; otherwise on amount + destination + time-window, escalating to a human on any ambiguity rather than guessing.</p>
+      </div>
+      <div class="frame">
+        <h3>What actually kept the money safe</h3>
+        <p class="muted">Not reconciliation — the <b>ledger gating the UI submit</b>. A triggered intent is never re-clicked. The bank has no idempotency key, so a blind retry <i>would</i> post twice; the ledger state is what prevents it. Reconciliation exists to give the caller a truthful answer and an auditor a provable one.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MODEL OFFLINE -->
+<section id="model">
+  <div class="wrap reveal">
+    <div class="eyebrow">Where the LLM is — and isn't</div>
+    <h2><span class="n">§3</span>The model is offline. Runtime is deterministic.</h2>
+    <p class="sub">A model explores a new app offline, under human supervision, and proposes screen signatures and locator chains — which a human reviews. At runtime it's absent.</p>
+    <div class="grid c3">
+      <div class="card"><div class="num">reliable</div><h3>Replayable</h3><p>Zero-judgment work should be deterministic. No improvisation on money.</p></div>
+      <div class="card"><div class="num">cheap</div><h3>~100× less</h3><p>A vision call every step is far more cost and latency on UIs that barely change.</p></div>
+      <div class="card"><div class="num">auditable</div><h3>Reviewable</h3><p>Improvised runtime behavior can't be reviewed or audited. Authored steps can.</p></div>
+    </div>
+    <p class="muted" style="margin-top:1.2rem">The one narrow exception — a bounded, policy-checked, read-only recovery step — ships in shadow mode first. The halt stays the default.</p>
+  </div>
+</section>
+
+<!-- GENERALIZATION + EVIDENCE -->
+<section id="scale">
+  <div class="wrap reveal">
+    <div class="eyebrow">Generalization &amp; evidence</div>
+    <h2>One base per vendor. A small overlay per institution.</h2>
+    <p class="sub">~200 institutions run the same few vendor products. Write the base once; each institution gets a tiny overlay of local differences ("Member No." vs "Member Number").</p>
+    <div class="quote">The <b>fork threshold</b>: the moment an overlay needs <span class="m">if/else</span>, it isn't config anymore — it becomes part of the program.</div>
+    <div class="cols" style="margin-top:1rem">
+      <div class="frame">
+        <h3>Evidence is a query, not a guess</h3>
+        <p class="muted">Every run writes a structured trace — one event per line. For an auditor: who acted, under which task and version, approved by whom, for which member, with what result, and who fired the money step.</p>
+      </div>
+      <div class="frame">
+        <h3>Early-warning signals</h3>
+        <p class="muted"><b>Locator-tier drift</b> and a <b>shift in the decline mix</b> both show up <i>before</i> a member ever hits a failure. Observability isn't optional — the job that reads true state back is part of the system, monitored like anything else.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section id="cta">
+  <div class="wrap reveal" style="text-align:center">
+    <h2>Want to see it drive a screen?</h2>
+    <p class="sub" style="margin:0 auto 1.6rem">The walkthrough is the real artifact — an executor working a mock legacy bank app, pausing at every idea worth pointing out.</p>
+    <div class="btns" style="justify-content:center">
+      <a class="btn primary" href="walkthrough.html">▶ Launch the walkthrough <span class="arw">→</span></a>
+      <a class="btn" href="DESIGN.md">Read the full design doc</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Design &amp; build — Tarek Soufi</span>
+    <span>
+      <a href="walkthrough.html">Walkthrough</a> ·
+      <a href="deck.html">Deck</a> ·
+      <a href="DESIGN.md">Design doc</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+  // scroll reveal
+  const io=new IntersectionObserver((es)=>{
+    es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} });
+  },{threshold:.12});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

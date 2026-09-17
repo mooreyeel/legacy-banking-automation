@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Executor Walkthrough — transfer_funds</title>
+<style>
+  :root{
+    --bg:#0c0f16;--ink:#e8edf5;--muted:#93a0b4;--line:#283246;--accent:#5aa9ff;--accent2:#38d6b0;
+    --danger:#ff6b6b;--warn:#f6c453;--ok:#38d6b0;--mono:ui-monospace,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden}
+  header{display:flex;align-items:center;gap:1rem;padding:.7rem 1.1rem;border-bottom:1px solid var(--line);background:#0a0d13}
+  header .title{font-weight:700;font-size:1rem}
+  header .title .m{font-family:var(--mono);color:var(--accent2);font-size:.85rem}
+  .tabs{display:flex;gap:.4rem;margin-left:.6rem}
+  .tab{background:#141a25;border:1px solid var(--line);color:var(--muted);padding:.35em .8em;border-radius:999px;
+    font-size:.82rem;cursor:pointer}
+  .tab.on{color:#fff;border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .spacer{flex:1}
+  .agent{display:flex;align-items:center;gap:.5em;font-size:.85rem;color:var(--muted)}
+  .dot{width:.6em;height:.6em;border-radius:50%;background:#3a4557}
+  .agent.working .dot{background:var(--accent2);animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.5)}}
+  .ctrl{background:#182031;border:1px solid var(--line);color:var(--ink);padding:.4em .8em;border-radius:8px;
+    cursor:pointer;font-size:.85rem}
+  .ctrl:hover{border-color:var(--accent)}
+  .ctrl.primary{background:var(--accent);color:#062038;border-color:var(--accent);font-weight:700}
+  main{display:grid;grid-template-columns:1.35fr 1fr;height:calc(100vh - 56px)}
+  /* ---------- legacy bank app ---------- */
+  .stage{padding:1.4rem;overflow:auto;background:#11151d}
+  .winchrome{background:#c9ccd2;border-radius:8px 8px 0 0;padding:.4em .7em;display:flex;align-items:center;gap:.5em;font-size:.78rem;color:#333}
+  .winchrome .d{width:.7em;height:.7em;border-radius:50%;background:#9aa}
+  .winurl{margin-left:.6em;background:#eef0f3;border:1px solid #b7bcc6;border-radius:4px;padding:.15em .6em;color:#556;font-family:var(--mono);font-size:.72rem}
+  .app{background:#e7e8ea;color:#20242c;border:1px solid #b7bcc6;border-top:none;border-radius:0 0 8px 8px;
+    min-height:430px;font-family:"Times New Roman",Georgia,serif;position:relative}
+  .appbar{background:linear-gradient(#3f5170,#2d3b53);color:#dfe6f2;padding:.5em .8em;font-size:.82rem;letter-spacing:.02em;
+    display:flex;justify-content:space-between}
+  .appbody{padding:1.1em 1.2em}
+  .app h3{margin:.1em 0 .8em;font-size:1.05rem;border-bottom:1px solid #b7bcc6;padding-bottom:.3em;color:#2d3b53}
+  .fld{margin:.55em 0;display:flex;align-items:center;gap:.6em}
+  .fld label{width:130px;font-size:.9rem;color:#333;text-align:right}
+  .app input,.app select{font-family:var(--mono);font-size:.9rem;padding:.28em .45em;border:1px solid #8b93a3;
+    background:#fff;border-radius:2px;min-width:180px}
+  .app button{font-family:var(--sans);font-size:.85rem;padding:.35em 1em;margin-top:.4em;
+    background:linear-gradient(#fdfdfd,#dfe2e8);border:1px solid #8b93a3;border-radius:3px;cursor:default;color:#222}
+  .app table.acct{border-collapse:collapse;margin:.4em 0;font-family:var(--mono);font-size:.85rem;width:100%}
+  .app table.acct td,.app table.acct th{border:1px solid #c3c7cf;padding:.35em .6em;text-align:left}
+  .app table.acct th{background:#dde1e8;color:#2d3b53}
+  .link{color:#1a5fb4;text-decoration:underline;cursor:default;font-size:.9rem}
+  .summary{background:#f6f7f9;border:1px solid #c3c7cf;padding:.7em .9em;font-family:var(--mono);font-size:.9rem;border-radius:3px}
+  .dialog{position:absolute;inset:0;background:rgba(20,24,32,.45);display:flex;align-items:center;justify-content:center}
+  .dialog .box{background:#fff;border:1px solid #8b93a3;border-top:4px solid #c0392b;border-radius:4px;
+    padding:1em 1.2em;max-width:340px;font-family:var(--sans);font-size:.9rem;color:#222;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+  .dialog .box .h{color:#c0392b;font-weight:700;margin-bottom:.4em}
+  /* highlight + typing */
+  .hl{outline:3px solid var(--accent);outline-offset:2px;border-radius:3px;
+    box-shadow:0 0 0 6px rgba(90,169,255,.18);transition:all .2s;position:relative;z-index:2}
+  .badge{position:absolute;transform:translateY(-125%);background:#0a0d13;color:var(--accent2);
+    border:1px solid var(--accent2);border-radius:6px;padding:.2em .55em;font-family:var(--mono);font-size:.72rem;
+    white-space:nowrap;z-index:9;pointer-events:none}
+  .caret{border-right:2px solid #20242c;animation:blink .7s steps(1) infinite}
+  @keyframes blink{50%{border-color:transparent}}
+  /* ---------- inspector ---------- */
+  .inspector{border-left:1px solid var(--line);display:flex;flex-direction:column;background:#0a0d13;overflow:hidden}
+  .step{padding:1.1rem 1.2rem;border-bottom:1px solid var(--line)}
+  .step .k{color:var(--accent2);text-transform:uppercase;letter-spacing:.12em;font-size:.72rem;font-weight:700}
+  .step .say{font-size:1.12rem;margin:.4em 0 .3em;line-height:1.4}
+  .step .concept{color:var(--muted);font-size:.95rem;line-height:1.45}
+  .step .concept b{color:#cdd6e4}
+  .ledger{padding:.9rem 1.2rem;border-bottom:1px solid var(--line)}
+  .ledger .k{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em}
+  .pills{display:flex;gap:.35em;margin-top:.5em;flex-wrap:wrap}
+  .pill{font-family:var(--mono);font-size:.74rem;padding:.25em .55em;border-radius:999px;border:1px solid var(--line);color:#5b6678}
+  .pill.on{color:#062038;background:var(--accent2);border-color:var(--accent2);font-weight:700}
+  .pill.red.on{background:var(--danger);border-color:var(--danger);color:#2a0b0b}
+  .pill.warn.on{background:var(--warn);border-color:var(--warn);color:#2a2205}
+  .receipt{margin-top:.5em;font-family:var(--mono);font-size:.78rem;color:var(--muted)}
+  .trace{flex:1;overflow:auto;padding:.8rem 1.2rem;font-family:var(--mono);font-size:.76rem;line-height:1.6}
+  .trace .ln{white-space:pre-wrap;color:#8794a8}
+  .trace .ln .t{color:var(--accent)}
+  .trace .ln .ok{color:var(--ok)}
+  .trace .ln .warn{color:var(--warn)}
+  .trace .ln .err{color:var(--danger)}
+  /* callout */
+  .callout{position:fixed;inset:0;background:rgba(6,9,14,.72);display:none;align-items:center;justify-content:center;z-index:50}
+  .callout.show{display:flex}
+  .callout .card{background:#101725;border:1px solid var(--accent);border-radius:14px;max-width:560px;padding:1.6rem 1.8rem;
+    box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  .callout .k{color:var(--warn);text-transform:uppercase;letter-spacing:.14em;font-size:.78rem;font-weight:700}
+  .callout h2{margin:.3em 0 .5em;font-size:1.6rem;line-height:1.15}
+  .callout p{color:#c7d0de;font-size:1.08rem;line-height:1.55;margin:.5em 0}
+  .callout .m{font-family:var(--mono);color:var(--accent2)}
+  .callout .go{margin-top:1.1em;background:var(--accent);color:#062038;border:none;padding:.6em 1.4em;border-radius:9px;
+    font-weight:700;cursor:pointer;font-size:1rem}
+  .workitem{background:#0a0d13;border:1px solid var(--warn);border-radius:10px;padding:.8em 1em;margin-top:.9em;
+    font-family:var(--mono);font-size:.78rem;color:#d8c48a;white-space:pre-wrap;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <div class="title">Executor <span class="m">· transfer_funds@1.4.0</span></div>
+  <div class="tabs">
+    <div class="tab on" data-s="happy">Happy path</div>
+    <div class="tab" data-s="phantom">Phantom send</div>
+    <div class="tab" data-s="escalate">Escalation</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="agent" id="agent"><span class="dot"></span><span id="agentTxt">idle</span></div>
+  <button class="ctrl primary" id="play">▶ Play</button>
+  <button class="ctrl" id="next">Step ⏭</button>
+  <button class="ctrl" id="restart">↻ Restart</button>
+</header>
+
+<main>
+  <div class="stage">
+    <div class="winchrome"><span class="d"></span><span class="d"></span><span class="d"></span>
+      <span class="winurl">https://corable-ms.internal/v7/servicing</span></div>
+    <div class="app" id="app"><div class="appbar"><span>CORABLE — Member Servicing v7</span><span>svc_acct: agent-01</span></div>
+      <div class="appbody" id="appbody"></div></div>
+  </div>
+
+  <div class="inspector">
+    <div class="step">
+      <div class="k" id="stepK">READY</div>
+      <div class="say" id="stepSay">Pick a scenario and press Play — or Step through it.</div>
+      <div class="concept" id="stepConcept">You're watching the executor drive a real legacy screen: look → identify the screen → locate a field by tier → act → verify. It pauses at the ideas worth pointing out.</div>
+    </div>
+    <div class="ledger">
+      <div class="k">intent_ledger · transfer_funds</div>
+      <div class="pills">
+        <span class="pill" data-p="created">created</span>
+        <span class="pill warn" data-p="prepared">prepared</span>
+        <span class="pill red" data-p="triggered">triggered</span>
+        <span class="pill" data-p="confirmed">confirmed</span>
+        <span class="pill red" data-p="unknown">unknown</span>
+        <span class="pill" data-p="aborted">aborted</span>
+      </div>
+      <div class="receipt" id="receipt">receipt: —</div>
+    </div>
+    <div class="trace" id="trace"></div>
+  </div>
+</main>
+
+<div class="callout" id="callout"><div class="card">
+  <div class="k" id="coK">PAUSE</div><h2 id="coH"></h2><p id="coP"></p>
+  <button class="go" id="coGo">Continue →</button>
+</div></div>
+
+<script>
+const $=s=>document.querySelector(s), body=$('#appbody');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let scenario='happy', acts=[], ptr=0, busy=false, playing=false, waitingGate=null;
+
+/* ---------------- screens ---------------- */
+const SCREENS={
+  member_search:()=>`<h3>Member Search</h3>
+    <div class="fld"><label>Member ID</label><input id="f_member" value=""></div>
+    <div class="fld"><label></label><button id="b_search">Search</button></div>
+    <div style="color:#667;font-size:.8rem;margin-top:1em">Signature: labels "Member ID" + "Search"</div>`,
+  member_summary:()=>`<h3>Member Summary — Dana R. Okafor</h3>
+    <table class="acct"><tr><th>Account</th><th>Type</th><th>Available</th></tr>
+    <tr><td>Checking ****1204</td><td>DDA</td><td>$3,905.12</td></tr>
+    <tr><td>Savings ****9917</td><td>SAV</td><td>$18,240.00</td></tr></table>
+    <div style="margin-top:.7em"><span class="link" id="b_transfer">» Transfer Funds</span></div>`,
+  transfer_form:()=>`<h3>Internal Transfer</h3>
+    <div class="fld"><label>From Account</label><select id="f_from"><option></option><option>Checking ****1204</option><option>Savings ****9917</option></select></div>
+    <div class="fld"><label>To Account</label><select id="f_to"><option></option><option>Checking ****1204</option><option>Savings ****9917</option></select></div>
+    <div class="fld"><label>Amount</label><input id="f_amount" value=""></div>
+    <div class="fld"><label></label><button id="b_continue">Continue</button></div>`,
+  transfer_confirm:()=>`<h3>Confirm Transfer</h3>
+    <div class="summary" id="f_summary">From: Checking ****1204\nTo:&nbsp;&nbsp; Savings ****9917\nAmount: $250.00</div>
+    <div class="fld" style="margin-top:.9em"><label></label><button id="b_submit">Submit Transfer</button></div>
+    <div style="color:#667;font-size:.8rem;margin-top:.6em">The executor has filled everything and STOPPED here.</div>`,
+  receipt:()=>`<h3>Transfer Complete</h3>
+    <div class="summary">Confirmation #: <b>CN-88213-4471</b>\nPosted: 2026-09-09 14:02\nAmount: $250.00</div>`,
+  recent_activity:()=>`<h3>Recent Activity — Dana R. Okafor</h3>
+    <table class="acct"><tr><th>Date</th><th>Description</th><th>Amount</th></tr>
+    <tr><td>09-09</td><td>Internal transfer → Savings ****9917 <b>[ref cn88213]</b></td><td>-$250.00</td></tr>
+    <tr><td>09-08</td><td>ACH deposit</td><td>+$1,900.00</td></tr></table>`,
+  flagged:()=>`<h3>Confirm Transfer</h3>
+    <div class="summary" id="f_summary">From: Checking ****1204\nTo:&nbsp;&nbsp; Savings ****9917\nAmount: $250.00</div>
+    <div class="dialog"><div class="box"><div class="h">⚠ Account flagged for review</div>
+    This account requires manual servicing approval before transfers. Contact the operations desk.</div></div>`
+};
+function renderScreen(name){ body.innerHTML=SCREENS[name](); }
+
+/* ---------------- inspector helpers ---------------- */
+function agent(on,txt){ $('#agent').classList.toggle('working',on); $('#agentTxt').textContent=txt||(on?'working':'idle'); }
+function setStep(k,say,concept){ $('#stepK').textContent=k; $('#stepSay').innerHTML=say; if(concept)$('#stepConcept').innerHTML=concept; }
+function ledger(state){ document.querySelectorAll('.pill').forEach(p=>p.classList.toggle('on',p.dataset.p===state)); }
+function receipt(t){ $('#receipt').innerHTML='receipt: '+t; }
+function trace(html){ const d=document.createElement('div'); d.className='ln'; d.innerHTML=html; $('#trace').appendChild(d); $('#trace').scrollTop=1e9; }
+function badge(el,text){
+  const b=document.createElement('span'); b.className='badge'; b.textContent=text;
+  el.parentElement.style.position='relative'; el.parentElement.appendChild(b);
+  const r=el.offsetLeft; b.style.left=r+'px'; b.style.top=el.offsetTop+'px';
+}
+async function highlight(id,tier){
+  const el=document.getElementById(id); if(!el)return;
+  el.classList.add('hl'); if(tier)badge(el,tier);
+  await sleep(500);
+}
+function clearHL(){ document.querySelectorAll('.hl').forEach(e=>e.classList.remove('hl')); document.querySelectorAll('.badge').forEach(e=>e.remove()); }
+async function typeInto(id,val){
+  const el=document.getElementById(id); if(!el)return;
+  el.classList.add('caret'); el.value='';
+  for(const ch of val){ el.value+=ch; await sleep(55); }
+  el.classList.remove('caret');
+}
+async function press(id){ const el=document.getElementById(id); if(el){el.style.filter='brightness(.9)';await sleep(140);el.style.filter='';} }
+
+/* ---------------- act runner ---------------- */
+async function run(a){
+  agent(true, a.agent||'working');
+  if(a.k!==undefined) setStep(a.k,a.say,a.concept);
+  if(a.screen){ renderScreen(a.screen); trace(`<span class="t">identify()</span> → <b>${a.screen}</b> ${a.screenOk===false?'<span class="err">UNKNOWN</span>':'<span class="ok">✓</span>'}`); await sleep(400); }
+  if(a.locate){ await highlight(a.locate, a.tier); trace(`<span class="t">resolve</span>('${a.field}') → ${a.tier?('<span class="ok">'+a.tier+'</span>'):''}`); }
+  if(a.type!==undefined){ await typeInto(a.locate,a.type); trace(`type_into ${a.field} = "${a.type}"  <span class="ok">readback ✓</span>`); }
+  if(a.select!==undefined){ const el=document.getElementById(a.locate); if(el)el.value=a.select; trace(`set ${a.field} = "${a.select}" <span class="ok">✓</span>`); await sleep(250); }
+  if(a.click){ await press(a.click); trace(`click ${a.click.replace('b_','')}`); }
+  if(a.ledger){ ledger(a.ledger); trace(`ledger → <b>${a.ledger}</b>`); }
+  if(a.receipt){ receipt(a.receipt); }
+  if(a.trace){ trace(a.trace); }
+  if(a.workitem){ body.insertAdjacentHTML('beforeend', `<div class="workitem">${a.workitem}</div>`); }
+  await sleep(a.hold||500);
+  clearHL();
+  agent(false,'idle');
+}
+
+/* ---------------- scenarios ---------------- */
+function common(){ return [
+  {k:'IDENTIFY',say:'Which screen is this?',concept:'Every screen has a <b>signature</b> — a few labels that must all be present, and sometimes a <b>negative</b> condition too (confirm requires Submit <i>present</i> and no dialog — else it collides with the flagged screen). <span class="m">identify()</span> returns the name or UNKNOWN. It runs before every act and after every recovery.',screen:'member_search',agent:'reading snapshot'},
+  {k:'LOCATE · tier 1',say:'Find the Member ID field by its <b>label</b>.',concept:'Locator tiers: <b>label → structural → text → image</b>. Label is how a human navigates and the most stable thing on a legacy screen. We <b>log which tier fired</b> — a silent drop to tier 2 is the earliest sign a screen changed.',locate:'f_member',field:'member_id',tier:"tier 1 · label 'Member ID'"},
+  {k:'ACT + VERIFY',say:'Type the member ID — then read it back.',concept:'<b>Check-then-act, then verify.</b> On an API-less app the <b>readback is the only receipt you get</b>. We verify the field <i>accepted</i> the value, not just that we pressed keys.',locate:'f_member',type:'M-4471',field:'member_id'},
+  {k:'WAIT · not sleep',say:'Search, and wait for the next screen.',concept:'Never a blind <span class="m">sleep</span> — we wait on a <b>condition</b> (the summary screen renders) with a time budget. Retry budget follows <b>reversibility</b>: reads/navigation retry once; <b>submit gets zero</b> blind retries. That is how we tell "slow" from "dead".',click:'b_search',hold:700},
+  {k:'MEMBER BINDING',say:'Summary screen — and the accounts belong to this member.',concept:'Before any money step the <b>orchestrator</b> (there is no bank API) checks the request accounts against the <b>scraped summary</b> — they must belong to the bound member. A run is tied to one member; the caller can never reach across members or institutions.',screen:'member_summary',agent:'verifying binding'},
+  {k:'NAVIGATE',say:'Open the transfer form.',concept:'Same loop, next screen. Nothing irreversible yet — reads and navigation are cheap and safe.',locate:'b_transfer',field:'transfer_link',tier:"tier 1 · label 'Transfer Funds'",click:'b_transfer',hold:600},
+  {pause:true,coK:'WATCH THIS PART',coH:'Money starts here',coP:'From now on the executor is filling a form it will <span class="m">never blindly submit</span>. Watch what it does at the confirmation screen.'},
+  {k:'FILL',say:'Set the From account.',concept:'Each typed/selected value is read back to confirm the app took it.',screen:'transfer_form',locate:'f_from',field:'from_acct',tier:"tier 1 · label 'From Account'",select:'Checking ****1204'},
+  {k:'FILL',say:'Set the To account.',concept:'',locate:'f_to',field:'to_acct',tier:"tier 1 · label 'To Account'",select:'Savings ****9917'},
+  {k:'FILL',say:'Type the amount, read it back.',concept:'Amount located by its label, typed, and read back — <span class="m">$250.00 ✓</span>.',locate:'f_amount',field:'amount',tier:"tier 1 · label 'Amount'",type:'250.00'},
+  {k:'CONTINUE',say:'Advance to the confirmation screen.',concept:'',locate:'b_continue',field:'continue',click:'b_continue',hold:700},
+]; }
+
+function scenarioActs(name){
+  const a=common();
+  if(name==='happy'||name==='phantom'){
+    a.push({k:'STOP AT CONFIRM',say:'Filled everything — and <b>stopped</b>.',concept:'Money-moving tasks fill all the way to the confirmation screen and <b>halt</b>. The on-screen summary is checked against the typed inputs. Ledger sits at <span class="m">prepared</span>.',screen:'transfer_confirm',ledger:'prepared',agent:'checking summary',
+      trace:'check confirm summary vs inputs: from ✓ to ✓ amount ✓'});
+    a.push({pause:true,coK:'THE ONE RED ARROW',coH:'Submit fires only on an outside go-ahead',coP:'The ledger is <span class="m">prepared</span>. The submit button will fire <b>only</b> when a human or an institution rule approves — the one guarded transition <span class="m">PREPARED → TRIGGERING</span>. On timeout it stays prepared and never fires.'});
+    a.push({k:'APPROVE',say:'Outside approval received → advance the intent.',concept:'The <span class="m">intent_key</span> row moves <span class="m">prepared→triggered</span> in the DB — this gates the <b>UI submit</b>: a triggered intent is never re-clicked blind. (intent_key settles the <i>inside</i> race — two executors, one intent; the bank has no idempotency key.)',ledger:'triggered',agent:'approved',trace:'approval: rule "internal ≤ $500" ✓ → advance intent'});
+  }
+  if(name==='happy'){
+    a.push({k:'SUBMIT · single fire',say:'Click submit — exactly once.',concept:'The action fires once and is never retried blind. A re-clicked submit is a double transfer.',locate:'b_submit',field:'submit',click:'b_submit',hold:900,agent:'submitting'});
+    a.push({k:'CAPTURE',say:'Confirmation captured → confirmed.',concept:'We read the confirmation number, write it into the ledger <b>receipt</b>, and the intent goes <span class="m">triggered→confirmed</span>. Now it is auditable.',screen:'receipt',ledger:'confirmed',receipt:'<span class="ok">CN-88213-4471</span>',trace:'read confirmation_number = CN-88213-4471 <span class="ok">✓</span>'});
+    a.push({pause:true,coK:'DONE',coH:'One clean run',coP:'Every step was: look → identify → locate (logged tier) → act → verify. Money crossed exactly one guarded arrow, on approval, and left a receipt in the ledger.'});
+  }
+  if(name==='phantom'){
+    a.push({k:'SUBMIT',say:'Click submit… and the confirmation never renders.',concept:'The click landed, but the receipt screen times out. We do <b>not</b> know if the money moved.',locate:'b_submit',field:'submit',click:'b_submit',hold:900,agent:'submitting'});
+    a.push({k:'UNKNOWN',say:'Timed out. State = <b>unknown</b>.',concept:'A <span class="m">triggered</span> ledger row with <b>no receipt</b> IS the unknown state. The rule: <b>never retry blind</b>.',ledger:'unknown',agent:'stuck',trace:'<span class="warn">post-submit wait budget exceeded → UNKNOWN</span>'});
+    a.push({pause:true,coK:'THE SCARIEST STATE',coH:'"Did the money actually move?"',coP:'Don\'t retry (double-send). Don\'t abort (it may have worked). Resolve it with a <b>read-only</b> task — <span class="m">did_intent_post(intent_key)</span> — reading the account before touching anything.'});
+    a.push({k:'RECONCILE · read-only',say:'Read the account\'s recent activity.',concept:'A read-only task, no ledger write, no money. It matches on the <b>stamped intent ref</b> in the memo (<span class="m">cn88213</span>) — unambiguous where the app allows it.',screen:'recent_activity',agent:'reconciling',
+      locate:null});
+    a.push({k:'FOUND',say:'The transfer posted. Write the receipt.',concept:'Found → write receipt, <span class="m">triggered→confirmed</span>. What kept the money safe was the <b>ledger gating the submit</b> (never re-clicked blind), not reconciliation — reconciliation exists to give a <i>truthful, auditable answer</i>.',ledger:'confirmed',receipt:'<span class="ok">cn88213 (via reconciliation)</span>',trace:'match memo ref cn88213 <span class="ok">✓</span> → confirmed'});
+    a.push({pause:true,coK:'THE WAR STORY',coH:'This is a real bug I lived',coP:'On a no-API portal I recorded submits as complete <i>without</i> capturing the confirmation — and couldn\'t tell "pending" from "never sent." That phantom-send is exactly why reconciliation is a first-class read-only task here.'});
+  }
+  if(name==='escalate'){
+    a.push({k:'UNEXPECTED SCREEN',say:'Confirmation expected — but an unknown dialog appears.',concept:'<span class="m">identify()</span> expected <b>transfer_confirm</b>; it sees an undeclared "account flagged" dialog → <b>UNKNOWN</b>.',screen:'flagged',screenOk:false,ledger:'prepared',agent:'stuck',trace:'<span class="err">expected transfer_confirm, saw dialog "Account flagged" → UNKNOWN</span>'});
+    a.push({pause:true,coK:'HARD OUTCOME',coH:'Freeze — zero actions past a failed check',coP:'A never-seen screen is a hard outcome: <b>freeze, capture, escalate</b>. Nothing irreversible has fired (ledger is still <span class="m">prepared</span>). The session is parked alive for a human.'});
+    a.push({k:'WORK ITEM',say:'A human gets a work item — not an alert.',concept:'Plain domain words, masked inputs, everything already done, and a live session URL to <b>cede</b> into. The human resolves it; next version adds it as a <b>declared branch</b> (ACCOUNT_RESTRICTED) so it never escalates again.',agent:'escalated',
+      workitem:'{\n  "ticket": "wi_5590", "lane": "member_waiting",\n  "task": "transfer_funds@1.4.0", "step": "confirm",\n  "failed_check": {"expected":"transfer_confirm",\n                   "observed":"dialog: Account flagged"},\n  "inputs_masked": {"from":"****1204","to":"****9917","amount":"$250.00"},\n  "irreversible_done": false,\n  "live_session": {"control_url":"…","expires_s":900}\n}'});
+    a.push({pause:true,coK:'THE LOOP',coH:'Each escalation makes the next less likely',coP:'The human\'s takeover is recorded and becomes the raw material for the next task version. Hard outcome today → declared branch tomorrow.'});
+  }
+  return a;
+}
+
+/* ---------------- engine ---------------- */
+function loadScenario(name){
+  scenario=name; acts=scenarioActs(name); ptr=0; playing=false; waitingGate=null;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.s===name));
+  $('#trace').innerHTML=''; ledger('created'); receipt('—'); renderScreen('member_search');
+  setStep('READY', {happy:'Happy path — one clean transfer.',phantom:'Phantom send — clicked, no confirmation.',escalate:'Escalation — an unexpected screen.'}[name],
+    'Press <b>Play</b> to watch it, or <b>Step</b> to pace it yourself. It pauses at each teaching moment.');
+  trace(`<span class="t">run_created</span> transfer_funds@1.4.0 · tenant cu_047`); ledger('created');
+  $('#play').textContent='▶ Play';
+}
+async function step(){
+  if(busy) return;
+  if(ptr>=acts.length){ playing=false; $('#play').textContent='▶ Play'; return; }
+  const a=acts[ptr++];
+  if(a.pause){ showCallout(a); playing=false; $('#play').textContent='▶ Play'; return; }
+  busy=true; await run(a); busy=false;
+  if(playing) setTimeout(step, 350);
+}
+function showCallout(a){ $('#coK').textContent=a.coK; $('#coH').innerHTML=a.coH; $('#coP').innerHTML=a.coP; $('#callout').classList.add('show'); }
+$('#coGo').onclick=()=>{ $('#callout').classList.remove('show'); if(playing) step(); };
+$('#play').onclick=()=>{ if($('#callout').classList.contains('show'))return; playing=!playing; $('#play').textContent=playing?'⏸ Pause':'▶ Play'; if(playing) step(); };
+$('#next').onclick=()=>{ if($('#callout').classList.contains('show')){$('#coGo').click();return;} playing=false; $('#play').textContent='▶ Play'; step(); };
+$('#restart').onclick=()=>loadScenario(scenario);
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>loadScenario(t.dataset.s));
+addEventListener('keydown',e=>{ if(e.key===' '||e.key==='ArrowRight'){e.preventDefault(); $('#next').click();} else if(e.key==='Enter'&&$('#callout').classList.contains('show')){$('#coGo').click();}});
+loadScenario('happy');
+</script>
+</body>
+</html>

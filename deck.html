@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Driving Legacy Bank UIs — Design Round</title>
+<style>
+  :root{
+    --bg:#0d1017; --panel:#151a23; --panel2:#1b2230; --ink:#e8edf5; --muted:#98a4b6;
+    --line:#2b3444; --accent:#5aa9ff; --accent2:#38d6b0; --danger:#ff6b6b; --warn:#f6c453;
+    --ok:#38d6b0; --radius:12px; --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+  .deck{height:100vh;width:100vw;overflow:hidden;position:relative}
+  .slide{position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;
+    padding:5vh 6vw;animation:fade .35s ease}
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  h1{font-size:3.4rem;line-height:1.05;margin:0 0 .4em;letter-spacing:-.02em}
+  h2{font-size:2.1rem;margin:0 0 .1em;letter-spacing:-.01em}
+  h2 .k{color:var(--accent)}
+  .kicker{color:var(--accent2);font-weight:700;text-transform:uppercase;letter-spacing:.14em;font-size:.82rem;margin-bottom:.8em}
+  .sub{color:var(--muted);font-size:1.25rem;max-width:60ch;line-height:1.5}
+  ul{margin:.6em 0 0;padding:0;list-style:none;max-width:80ch}
+  li{position:relative;padding-left:1.4em;margin:.55em 0;font-size:1.16rem;line-height:1.45;color:#d3dbe7}
+  li::before{content:"";position:absolute;left:0;top:.55em;width:.5em;height:.5em;border-radius:2px;background:var(--accent)}
+  li b{color:#fff}
+  .cols{display:flex;gap:2.2rem;align-items:flex-start}
+  .cols>div{flex:1}
+  .tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    padding:.3em .7em;border-radius:999px;font-size:.8rem;margin-top:1.4em}
+  code,.m{font-family:var(--mono)}
+  .m{color:var(--accent2)}
+  .note{background:var(--panel);border-left:3px solid var(--warn);padding:.7em 1em;border-radius:8px;
+    color:#e7d9b0;max-width:78ch;margin-top:1.1em;font-size:1.02rem}
+  .foot{position:absolute;bottom:2.2vh;left:6vw;right:6vw;display:flex;justify-content:space-between;
+    color:#4a566a;font-size:.82rem}
+  .progress{position:absolute;top:0;left:0;height:3px;background:var(--accent)}
+  /* diagram bits */
+  .flow{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:1.4em}
+  .node{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:.7em 1em;
+    font-size:1.02rem;min-width:90px;text-align:center}
+  .node .t{font-size:.72rem;color:var(--muted);display:block;margin-top:.2em}
+  .node.accent{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .node.ok{border-color:var(--ok)}
+  .node.warn{border-color:var(--warn)}
+  .node.danger{border-color:var(--danger)}
+  .arrow{color:var(--muted);font-size:1.3rem}
+  .side{display:flex;gap:1rem;margin-top:1.1em}
+  .chip{background:var(--panel);border:1px dashed var(--line);border-radius:10px;padding:.55em .9em;color:var(--muted);font-size:.95rem}
+  .chip b{color:var(--ink)}
+  .ladder{display:flex;flex-direction:column;gap:.5rem;margin-top:1.2em;max-width:60ch}
+  .rung{display:flex;align-items:center;gap:.8rem;background:var(--panel2);border:1px solid var(--line);
+    border-radius:9px;padding:.6em .9em}
+  .rung .n{font-family:var(--mono);color:var(--accent);width:2.4em}
+  .rung .d{color:var(--muted);font-size:.92rem;margin-left:auto}
+  table{border-collapse:collapse;margin-top:1.1em;font-size:1.04rem}
+  td,th{border:1px solid var(--line);padding:.55em .9em;text-align:left}
+  th{color:var(--accent2);font-weight:700}
+  .speaker{display:none;position:absolute;bottom:6vh;left:6vw;right:6vw;background:#0a0d13;
+    border:1px solid var(--line);border-radius:10px;padding:1em 1.2em;color:#b9c4d4;font-size:1rem;line-height:1.5}
+  .speaker.show{display:block}
+  .speaker b{color:var(--accent2)}
+  /* state machine svg */
+  svg{width:100%;height:auto}
+  .sm text{fill:var(--ink);font-family:var(--sans);font-size:13px}
+  .sm .lbl{fill:var(--muted);font-size:11px}
+  .sm rect{fill:var(--panel2);stroke:var(--line)}
+  .sm rect.run{stroke:var(--accent)}
+  .sm rect.money{stroke:var(--warn)}
+  .sm rect.end{stroke:var(--ok)}
+  .sm rect.stuck{stroke:var(--danger)}
+  .sm path{fill:none;stroke:var(--muted);stroke-width:1.5;marker-end:url(#a)}
+  .sm path.red{stroke:var(--danger);stroke-width:2.4}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- 1 -->
+<section class="slide">
+  <div class="kicker">Interface.ai · Design Round</div>
+  <h1>Giving an agent hands<br>inside legacy bank UIs</h1>
+  <p class="sub">A backend integration layer that operates back-office bank apps with <b style="color:#fff">no API</b> — by driving the UI like a human. Reliably, cheaply, auditably.</p>
+  <span class="tag">Designed from a production computer-use system I built on a no-API portal</span>
+  <div class="speaker"><b>Say:</b> "The agent decides <i>what</i> to do — this is <i>how</i> it reliably does it inside UI-only legacy apps. API is always preferred; this exists only for the long tail with none. I've built one of these in production, so I'll design from what held up and what broke."</div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <div class="kicker">The environment shapes everything</div>
+  <h2>Three properties that drive every choice</h2>
+  <ul>
+    <li><b>Stable UIs, real runtime errors.</b> Screens change slowly — but validation errors, "record not found," permission denials, dialogs, session expiry happen constantly. The happy path isn't useful.</li>
+    <li><b>Heterogeneous & legacy.</b> Modern web, server-rendered framesets, or native desktop. No clean DOM, no test-IDs, no API. The only reliable surface is what a human operator sees.</li>
+    <li><b>Multi-tenant at scale.</b> ~200 institutions × ~20 apps, many running the <i>same vendor product</i> branded differently. Automation must generalize or degrade gracefully — never be rebuilt per tenant.</li>
+  </ul>
+  <div class="note">Two anchor tasks throughout: <span class="m">get_balance</span> (read-only) and <span class="m">transfer_funds</span> (irreversible). The task's <b>label</b> drives unattended-vs-not, retry, evidence depth, and whether it must stop for approval.</div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="kicker">Architecture</div>
+  <h2>Five boundaries, three side-outputs</h2>
+  <div class="flow">
+    <div class="node accent">Agent<span class="t">the caller</span></div><span class="arrow">→</span>
+    <div class="node">Task API<span class="t">typed catalog</span></div><span class="arrow">→</span>
+    <div class="node">Executor<span class="t">check-then-act · ledger</span></div><span class="arrow">→</span>
+    <div class="node">Driver<span class="t">one interface</span></div><span class="arrow">→</span>
+    <div class="node">Legacy app<span class="t">UI-only</span></div>
+  </div>
+  <div class="side">
+    <div class="chip"><b>Work item</b> → human takeover</div>
+    <div class="chip"><b>Evidence</b> → trace + masked shots</div>
+    <div class="chip"><b>Vault</b> → secrets, login-only</div>
+  </div>
+  <div class="note">The model is <b>offline</b>: it proposes screen signatures & locator chains under human review. At runtime it's absent — no picking targets, no deciding to proceed, never fires money.</div>
+  <div class="speaker"><b>Trade-off:</b> deterministic replay + auditability + ~100× cheaper than a vision call every step, on UIs that barely change. The one bounded runtime fallback ships in shadow mode first.</div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <div class="kicker">The task contract</div>
+  <h2>The agent never sees a screen</h2>
+  <ul>
+    <li>It calls a <b>typed task</b> from a catalog it discovers via <span class="m">GET /tasks?tenant=</span> — inputs, safety label, whether it needs consent.</li>
+    <li>Every task returns the same <b>envelope</b>: a <span class="m">status</span> + exactly one of →</li>
+  </ul>
+  <div class="flow" style="margin-top:.8em">
+    <div class="node ok">outputs<span class="t">it worked</span></div>
+    <div class="node warn">decline<span class="t">typed business "no"</span></div>
+    <div class="node accent">escalation<span class="t">a human has it</span></div>
+  </div>
+  <div class="note">No UI words, selectors, screenshots, or stack traces ever cross this line. An agent-dev writes complete handling from the contract alone — without looking under the hood.</div>
+  <div class="speaker"><b>Trade-off:</b> a typed catalog over "let the agent click buttons" — reviewable, auditable, and a business "no" (insufficient funds) is a <i>branch</i>, not an error.</div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <div class="kicker">Driving the UI · the heart</div>
+  <h2>One loop, every surface</h2>
+  <div class="flow">
+    <div class="node">snapshot<span class="t">what rendered</span></div><span class="arrow">→</span>
+    <div class="node">identify()<span class="t">which screen</span></div><span class="arrow">→</span>
+    <div class="node">locate<span class="t">tiers</span></div><span class="arrow">→</span>
+    <div class="node">act<span class="t">type / click</span></div><span class="arrow">→</span>
+    <div class="node ok">verify<span class="t">readback</span></div>
+  </div>
+  <ul style="margin-top:1.2em">
+    <li><b>Snapshot</b>, don't screenshot-and-guess: ask the browser what it rendered (CDP <span class="m">DOMSnapshot</span>) — a flat table of every visible element, text, geometry, across frames. Pixels only for evidence + last-resort OCR.</li>
+    <li><b>Wait on a condition, never a blind <span class="m">sleep</span></b> — budgets (15s load / 5s in-screen / 20s post-submit); one retry, then hard stop. That's how you tell "slow" from "dead."</li>
+  </ul>
+  <div class="note">On an API-less app, <b>readback is the only receipt you get.</b> Type → read it back. Click → wait for the expected next screen. Verify the postcondition, not the keystroke.</div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <div class="kicker">Locating on a messy legacy screen</div>
+  <h2>A tier ladder — and log which rung fired</h2>
+  <div class="ladder">
+    <div class="rung"><span class="n">1</span><b>Label</b> — the input just right of / below the text "Amount"<span class="d">most stable; how humans navigate</span></div>
+    <div class="rung"><span class="n">2</span><b>Structural</b> — position from a nearby landmark<span class="d">framesets, nested tables</span></div>
+    <div class="rung"><span class="n">3</span><b>Text pattern</b> — read a value like <span class="m">$1,234.56</span><span class="d">no usable label</span></div>
+    <div class="rung"><span class="n">4</span><b>Image match</b> — pixel floor, read-only<span class="d">no structure at all</span></div>
+  </div>
+  <div class="note">A tier must match <b>exactly one</b> element or it fails to the next. We <b>log which tier fired every action</b> — tier-1 quietly failing over to tier-2 across runs is the earliest warning a screen changed, visible <i>before</i> anything breaks.</div>
+  <div class="speaker"><b>War story:</b> that failover signal is real — it caught screen drift for me before a single user-facing failure. <b>Re-locate from a fresh snapshot right before acting</b>, so a popup that slipped in makes the click miss or fail verify instead of acting on a changed page.</div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <div class="kicker">Execution model</div>
+  <h2>Guards, not a status field</h2>
+  <svg class="sm" viewBox="0 0 900 340" role="img" aria-label="run state machine">
+    <defs><marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#98a4b6" stroke="none"/></marker></defs>
+    <rect class="run" x="20" y="150" width="92" height="42" rx="8"/><text x="66" y="176" text-anchor="middle">Working</text>
+    <rect class="money" x="170" y="150" width="98" height="42" rx="8"/><text x="219" y="170" text-anchor="middle">Prepared</text><text class="lbl" x="219" y="184" text-anchor="middle">filled, stopped</text>
+    <rect class="money" x="330" y="150" width="110" height="42" rx="8"/><text x="385" y="170" text-anchor="middle">Await trigger</text><text class="lbl" x="385" y="184" text-anchor="middle">outside go-ahead</text>
+    <rect class="money" x="500" y="150" width="98" height="42" rx="8"/><text x="549" y="176" text-anchor="middle">Triggering</text>
+    <rect class="end" x="660" y="90" width="98" height="42" rx="8"/><text x="709" y="116" text-anchor="middle">Confirmed</text>
+    <rect class="stuck" x="660" y="210" width="98" height="42" rx="8"/><text x="709" y="230" text-anchor="middle">Unknown</text><text class="lbl" x="709" y="244" text-anchor="middle">did it move?</text>
+    <rect class="end" x="20" y="60" width="92" height="42" rx="8"/><text x="66" y="86" text-anchor="middle">Declined</text>
+    <rect class="stuck" x="20" y="240" width="92" height="42" rx="8"/><text x="66" y="266" text-anchor="middle">Escalated</text>
+    <path d="M112,171 L170,171"/>
+    <path d="M268,171 L330,171"/>
+    <path d="M440,171 L500,171"/>
+    <path class="red" d="M598,165 C630,150 640,130 660,116"/>
+    <path d="M598,178 C630,195 640,205 660,220"/>
+    <path d="M66,150 L66,102"/>
+    <path d="M66,192 L66,240"/>
+    <text class="lbl" x="462" y="140" fill="#ff6b6b">approval (the one red arrow)</text>
+  </svg>
+  <div class="note">A status field lets code just <span class="m">set</span> a run to "done." Guarded states make the dangerous transition <b>unreachable by accident — and provable in a test.</b> Money crosses <span class="m">PREPARED → TRIGGERING</span> only on an outside go-ahead.</div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <div class="kicker">Idempotency</div>
+  <h2>Two keys, two different questions</h2>
+  <div class="cols">
+    <div>
+      <div class="node accent" style="min-width:auto;display:inline-block">Idempotency-Key <span class="t">HTTP header</span></div>
+      <ul><li>Guards the <b>network</b>: a dropped-and-retried request replays the stored response — nothing re-runs.</li><li>Catches the ordinary dropped connection / auto-retry.</li></ul>
+    </div>
+    <div>
+      <div class="node warn" style="min-width:auto;display:inline-block">intent_key <span class="t">in the ledger</span></div>
+      <ul><li>Guards the <b>money</b>: the caller mints it once for "this particular transfer."</li><li>Before firing, the executor <i>advances</i> <span class="m">prepared→triggered</span> in the DB — two racers, the DB lets exactly one win.</li></ul>
+    </div>
+  </div>
+  <div class="note">The header only catches an <i>identical</i> retry. If the caller's process restarts and re-sends as a fresh call, the header sees something new — but the <b>intent_key still catches it</b>, because the ledger remembers the intent no matter how the request arrives.</div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <div class="kicker">The scariest state · the auditor's question</div>
+  <h2>"Did the money actually move?"</h2>
+  <p class="sub">Clicked submit, never saw the confirmation. Don't retry blind (double-send). Don't abort blind (it may have worked). A <span class="m">triggered</span> ledger row with no <span class="m">receipt</span> <b style="color:#fff">is</b> the unknown state — so resolve it with a read-only task, never a retry.</p>
+  <table>
+    <tr><th>did_intent_post(intent_key)</th><th>ledger move</th><th>result</th></tr>
+    <tr><td>Found — posting matches</td><td>write receipt · <span class="m">→confirmed</span></td><td>return confirmation · <b>no resend</b></td></tr>
+    <tr><td>Not found — no transfer</td><td><span class="m">→aborted</span></td><td>safe to re-offer as fresh</td></tr>
+    <tr><td>Ambiguous</td><td>stays <span class="m">unknown</span></td><td>human work item</td></tr>
+  </table>
+  <div class="note"><b>Retry is safe regardless</b> — the intent_key prevents a double-fire. Reconciliation exists to give the <b>caller a truthful answer</b> and an <b>auditor a provable one</b>. Match on a stamped intent_key in the app's memo field where one exists; else (amount, to_acct, time-window) + human confirm on collision.</div>
+  <div class="speaker"><b>War story (your climax):</b> "I hit exactly this — recorded a submit as complete without capturing the confirmation, and couldn't tell 'pending on the other side' from 'never landed.' That phantom-send is why reconciliation is a first-class read-only task, not an afterthought."</div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <div class="kicker">Human-in-the-loop</div>
+  <h2>Pause · cede · resume — as states</h2>
+  <div class="flow">
+    <div class="node stuck">Stuck<span class="t">failed check / budget</span></div><span class="arrow">→</span>
+    <div class="node">Work item<span class="t">not an alert</span></div><span class="arrow">→</span>
+    <div class="node accent">Cede<span class="t">same frozen session</span></div><span class="arrow">→</span>
+    <div class="node ok">Resume<span class="t">3 ways</span></div>
+  </div>
+  <ul style="margin-top:1.1em">
+    <li>The work item is <b>plain domain words</b>: "expected the confirm screen, saw an 'account flagged' dialog" — masked inputs, everything already done (incl. anything irreversible), a live session URL.</li>
+    <li><b>Cede</b>: human drives the same session; viewing ≠ control; control is an exclusive lock — never both acting at once. Every input recorded as theirs.</li>
+    <li><b>Resume</b>: resume-at-step · complete-by-hand · abort. Each takeover becomes raw material for the next task version.</li>
+  </ul>
+  <div class="speaker"><b>War story:</b> an undeclared dialog escalated once → human resolved → shipped as a declared branch → now it returns cleanly. Each escalation makes the next less likely. <b>Desktop</b> that can't share a session degrades to assist-mode: we prepare + check the ledger, human clicks in their own session.</div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <div class="kicker">Safety &amp; data</div>
+  <h2>By design — not a permissions list</h2>
+  <ul>
+    <li><b>The catalog is the boundary.</b> If a task isn't in it, the agent can't ask for it. Inside a task, only <b>reviewed steps</b> exist — there's no <span class="m">click()</span> the caller can call.</li>
+    <li><b>Money stops at the confirmation screen.</b> Fill everything, check the on-screen summary against typed inputs, ledger sits <span class="m">prepared</span>, submit fires only on an outside go-ahead.</li>
+    <li><b>Secrets</b> live in a vault, injected only at login — we record "typed password," not the password. MFA secret is a human step if the org wants.</li>
+    <li><b>Member data</b> is never stored raw; evidence is <b>masked at the moment it's written</b>, so a screenshot can be redacted without weakening the check that already ran against the live value.</li>
+  </ul>
+  <div class="note">We start every institution under human review; only after enough clean supervised runs does it earn auto-run. A good success rate never bypasses this.</div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <div class="kicker">Evidence &amp; observability</div>
+  <h2>One trace, two readers</h2>
+  <div class="cols">
+    <div>
+      <div class="kicker" style="color:var(--muted)">Debugger</div>
+      <ul><li>A step-by-step timeline: at any freeze, <b>expected vs. what showed up</b>, which tier found each field, a masked shot at the boundary.</li></ul>
+    </div>
+    <div>
+      <div class="kicker" style="color:var(--muted)">Auditor</div>
+      <ul><li>An investigation becomes a query: <b>who acted</b> (our identity + any human takeover), under which task+version, approved by whom, for which member, with what result, and who fired the money step.</li></ul>
+    </div>
+  </div>
+  <div class="note"><b>Two early-warning signals, both visible before a member hits a failure:</b> locator-tier drift (tier-1→tier-2), and a shift in the decline mix per task/version/institution.</div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <div class="kicker">Generalization · 200 institutions</div>
+  <h2>Base + a small overlay — and a fork rule</h2>
+  <div class="flow">
+    <div class="node accent">Base<span class="t">per (vendor, version)</span></div><span class="arrow">+</span>
+    <div class="node">Overlay<span class="t">label swaps only</span></div><span class="arrow">=</span>
+    <div class="node ok">Tenant task<span class="t">same task, local labels</span></div>
+  </div>
+  <ul style="margin-top:1.1em">
+    <li>'Member No.' vs 'Member Number' is config. <b>The moment an overlay needs <span class="m">if/else</span>, it's not config — you fork.</b> That rule keeps 200 tenants from becoming 200 codebases.</li>
+    <li>Everything is <b>pinned</b> to a version; fixes roll in waves to partners first; a stale task <b>suspends itself</b> rather than improvising.</li>
+    <li>Onboarding = discovery agent maps their apps to a known vendor/version → inherit the base → generate the overlay via supervised read-only runs → their staff signs off. Not a project.</li>
+  </ul>
+</section>
+
+<!-- 14 -->
+<section class="slide">
+  <div class="kicker">The design I'd stand behind</div>
+  <h2>Small, coherent, opinionated</h2>
+  <ul>
+    <li><b>Typed task contract</b> — the agent never touches a screen; a business "no" is a branch.</li>
+    <li><b>One drive-UI loop</b> — snapshot → identify → locate (tiers) → act → verify. Readback is the receipt.</li>
+    <li><b>Guarded state machine + intent ledger</b> — the dangerous transition is unreachable by accident, and reconciliation answers "did it move?"</li>
+    <li><b>Escalation as a state</b> — pause, cede, resume; every takeover trains the next version.</li>
+    <li><b>Safety by design</b> — catalog, reviewed steps, stop-at-confirm, vault, masked evidence.</li>
+    <li><b>Base + overlay, fork when it needs logic</b> — generalizes across surfaces and tenants without per-tenant rebuilds.</li>
+  </ul>
+  <div class="note">Extensions it grows into cleanly: a completed task <b>emits a runnable Playwright test</b> (the screen model already is a page-object); draft→approved confidence gating; a single bounded, policy-checked assisted fallback, shadow-first.</div>
+  <div class="speaker">Close: "That's the design. It's deliberately small — I'd rather defend a coherent core than survey options. Where do you want to push?"</div>
+</section>
+
+</div>
+
+<div class="progress" id="bar"></div>
+<div class="foot"><span id="hint">← → to move · <b>n</b> speaker notes · <b>f</b> fullscreen</span><span id="count"></span></div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,x)=>s.classList.toggle('active',x===i));
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('count').textContent=(i+1)+' / '+slides.length;
+  }
+  function toggleNotes(){const n=slides[i].querySelector('.speaker'); if(n)n.classList.toggle('show');}
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){show(i+1);e.preventDefault();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){show(i-1);}
+    else if(e.key==='n'){toggleNotes();}
+    else if(e.key==='f'){if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}
+    else if(e.key==='Home'){show(0);} else if(e.key==='End'){show(slides.length-1);}
+    else if(/^[1-9]$/.test(e.key)){show(parseInt(e.key)-1);}
+  });
+  addEventListener('click',e=>{if(!e.target.closest('.speaker'))show(i+ (e.clientX>innerWidth/2?1:-1));});
+  show(0);
+</script>
+</body>
+</html>
