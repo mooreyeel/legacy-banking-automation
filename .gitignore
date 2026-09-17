@@ -1,2 +1,9 @@
 .DS_Store
-.vercel
+# python / executor artifacts
+executor/.venv/
+**/__pycache__/
+*.pyc
+executor/trace.jsonl
+*.db
+# vercel
+.vercel/
